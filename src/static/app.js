@@ -50,6 +50,41 @@ function credCellHtml(value) {
   </span>`;
 }
 
+function passwordCellHtml(entry) {
+  if (entry.password_is_blank) {
+    return '<span class="badge badge-blankpass" title="Password confirmed empty">&#128274; empty</span>';
+  }
+  return credCellHtml(entry.password);
+}
+
+// Wires a password <input> + lock <button> pair so the button toggles a
+// "confirmed empty password" state: locked disables/clears the input and
+// shows a closed-lock icon; unlocked restores normal typing. Returns an
+// accessor used when building the save payload.
+function wirePasswordLock(inputSel, lockBtnSel, initialLocked) {
+  const input = qs(inputSel);
+  const btn = qs(lockBtnSel);
+  let locked = !!initialLocked;
+
+  function render() {
+    btn.classList.toggle('active', locked);
+    btn.innerHTML = locked ? '&#128274;' : '&#128275;';
+    btn.title = locked ? 'Password confirmed empty — click to unlock' : 'Mark password as confirmed empty';
+    input.disabled = locked;
+    input.placeholder = locked ? '(confirmed empty)' : '';
+    if (locked) input.value = '';
+  }
+
+  btn.onclick = () => {
+    locked = !locked;
+    render();
+    if (!locked) input.focus();
+  };
+
+  render();
+  return () => locked;
+}
+
 document.addEventListener('click', e => {
   const revealBtn = e.target.closest('.reveal-toggle');
   if (revealBtn) {
@@ -342,7 +377,7 @@ function renderEntries(entries) {
     return `<tr class="row-hover${reusedRow}" data-id="${en.id}" style="border-bottom:1px solid #1e293b;${bg}">
       <td style="padding:7px 6px;text-align:center"><input type="checkbox" class="row-select-cb" data-id="${en.id}" style="width:auto;accent-color:#3b82f6" ${checked}></td>
       <td style="padding:7px 10px;font-weight:600;color:#e2e8f0">${en.username ? esc(en.username) : '<span class="cred-empty">—</span>'}</td>
-      <td data-col="password" style="padding:7px 10px">${credCellHtml(en.password)} ${reuseBadge(en.password_reuse_count, 'Password')}</td>
+      <td data-col="password" style="padding:7px 10px">${passwordCellHtml(en)} ${reuseBadge(en.password_reuse_count, 'Password')}</td>
       <td data-col="host" style="padding:7px 10px">${hostCell}</td>
       <td data-col="hash" style="padding:7px 10px">${hashCell} ${reuseBadge(en.hash_reuse_count, 'Hash')}</td>
       <td data-col="target" style="padding:7px 10px">${targetCell}</td>
@@ -603,7 +638,10 @@ function renderDetail(entry) {
       </div>
       <div class="form-field">
         <label>Password</label>
-        <input type="text" id="d-password" value="${esc(entry.password || '')}">
+        <div class="password-field-row">
+          <input type="text" id="d-password" value="${esc(entry.password || '')}">
+          <button type="button" class="btn-icon lock-toggle" id="d-password-lock" title="Mark password as confirmed empty">&#128275;</button>
+        </div>
       </div>
       <div class="form-field">
         <label>Host / IP</label>
@@ -674,6 +712,8 @@ function renderDetail(entry) {
     a.addEventListener('click', e => { e.preventDefault(); showDetail(parseInt(a.dataset.goto)); });
   });
 
+  const detailPasswordLocked = wirePasswordLock('#d-password', '#d-password-lock', entry.password_is_blank);
+
   // ── Save core fields + notes ───────────────────────────────────────────
   qs('#d-save-btn').addEventListener('click', async () => {
     const btn = qs('#d-save-btn');
@@ -688,6 +728,7 @@ function renderDetail(entry) {
           target_id: qs('#d-target').value || null,
           username:  qs('#d-username').value,
           password:  qs('#d-password').value,
+          password_is_blank: detailPasswordLocked(),
           host:      qs('#d-host').value,
           domain:    qs('#d-domain').value,
           service:   qs('#d-service').value,
@@ -815,6 +856,8 @@ updateSortHeaders();
 // Add Entry modal
 // ─────────────────────────────────────────────────────────────────────────────
 
+let entryPasswordLocked = () => false;
+
 function openEntryModal() {
   qs('#entry-modal-title').textContent = 'Add Entry';
   qs('#entry-target').value = (state.selectedTargetId && state.selectedTargetId !== 'none') ? state.selectedTargetId : '';
@@ -827,6 +870,7 @@ function openEntryModal() {
   qs('#entry-hash').value = '';
   qs('#entry-tags').value = '';
   qs('#entry-notes').value = '';
+  entryPasswordLocked = wirePasswordLock('#entry-password', '#entry-password-lock', false);
   qs('#entry-modal').style.display = 'flex';
 }
 
@@ -842,6 +886,7 @@ qs('#save-entry-btn').addEventListener('click', async () => {
     target_id: qs('#entry-target').value || null,
     username:  qs('#entry-username').value,
     password:  qs('#entry-password').value,
+    password_is_blank: entryPasswordLocked(),
     host:      qs('#entry-host').value,
     domain:    qs('#entry-domain').value,
     service:   qs('#entry-service').value,

@@ -137,6 +137,14 @@ thead th[data-sort]:hover { color: #93c5fd !important; }
 .cred-masked { letter-spacing: 2px; color: #64748b; }
 .cred-empty { color: #334155; }
 
+/* ── Confirmed-blank password ─────────────────────────────────────────────── */
+.badge-blankpass { background: #1e2f3a; color: #7dd3fc; border-color: #0284c7; }
+
+.password-field-row { display: flex; align-items: center; gap: 6px; }
+.password-field-row input[type=text] { flex: 1; }
+.lock-toggle { border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 0.85rem; }
+.lock-toggle.active { color: #7dd3fc; border-color: #0284c7; background: #1e2f3a; }
+
 /* ── Overlay / modal ──────────────────────────────────────────────────────── */
 .overlay  { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: flex; align-items: center; justify-content: center; }
 .modal    { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; width: 460px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }

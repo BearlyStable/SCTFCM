@@ -50,6 +50,7 @@
                 <tr><td>hashtype:</td><td>hash type</td></tr>
                 <tr><td>hash:</td><td>hash value</td></tr>
                 <tr><td>userpass:</td><td><code>yes</code> / <code>no</code> — has both a username and a password</td></tr>
+                <tr><td>blankpass:</td><td><code>yes</code> / <code>no</code> — password locked as confirmed empty</td></tr>
                 <tr><td>notes:</td><td><code>yes</code> / <code>no</code> — has a note</td></tr>
                 <tr><td>tag:</td><td>tagged with value — supports <code>*</code></td></tr>
                 <tr><td>target:</td><td>target name — supports <code>*</code></td></tr>
@@ -207,7 +208,10 @@
       </div>
       <div class="form-field">
         <label>Password</label>
-        <input type="text" id="entry-password">
+        <div class="password-field-row">
+          <input type="text" id="entry-password">
+          <button type="button" class="btn-icon lock-toggle" id="entry-password-lock" title="Mark password as confirmed empty">&#128275;</button>
+        </div>
       </div>
       <div class="form-field">
         <label>Host / IP</label>

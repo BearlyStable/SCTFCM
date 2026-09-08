@@ -40,19 +40,20 @@ def init_db():
         );
 
         CREATE TABLE IF NOT EXISTS entries (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            target_id    INTEGER REFERENCES targets(id) ON DELETE SET NULL,
-            username     TEXT,
-            password     TEXT,
-            host         TEXT,
-            domain       TEXT,
-            service      TEXT,
-            hash_type    TEXT,
-            hash         TEXT,
-            notes        TEXT,
-            tags         TEXT,
-            created_at   TEXT DEFAULT (datetime('now')),
-            updated_at   TEXT DEFAULT (datetime('now'))
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_id         INTEGER REFERENCES targets(id) ON DELETE SET NULL,
+            username          TEXT,
+            password          TEXT,
+            password_is_blank INTEGER NOT NULL DEFAULT 0,
+            host              TEXT,
+            domain            TEXT,
+            service           TEXT,
+            hash_type         TEXT,
+            hash              TEXT,
+            notes             TEXT,
+            tags              TEXT,
+            created_at        TEXT DEFAULT (datetime('now')),
+            updated_at        TEXT DEFAULT (datetime('now'))
         );
 
         CREATE INDEX IF NOT EXISTS idx_entries_target   ON entries(target_id);
@@ -60,6 +61,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_entries_password ON entries(password);
         CREATE INDEX IF NOT EXISTS idx_entries_hash      ON entries(hash);
         """)
+
+        entry_cols = {row["name"] for row in conn.execute("PRAGMA table_info(entries)")}
+        if "password_is_blank" not in entry_cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN password_is_blank INTEGER NOT NULL DEFAULT 0")
 
 
 init_db()
@@ -70,10 +75,20 @@ init_db()
 # filter) — the whole point is to catch a password/hash showing up on more
 # than one target.
 
+# A "locked" password (password_is_blank = 1) is a *confirmed* empty password —
+# distinct from password IS NULL, which just means "not found yet". Everywhere
+# below that asks "does this entry have a password", a locked-blank password
+# counts as yes, and all locked-blank entries are treated as sharing the same
+# (empty) value for reuse-detection purposes — a password sprayed as blank
+# across several accounts is exactly the kind of thing worth flagging.
+_HAS_PASSWORD_VALUE_EXPR = "(password_is_blank = 1 OR (password IS NOT NULL AND TRIM(password) != ''))"
+
 _PW_REUSE_EXPR = (
-    "CASE WHEN entries.password IS NOT NULL AND TRIM(entries.password) != '' "
-    "THEN (SELECT COUNT(*) FROM entries e2 WHERE e2.password = entries.password) "
-    "ELSE 0 END"
+    "CASE WHEN (entries.password_is_blank = 1 OR (entries.password IS NOT NULL AND TRIM(entries.password) != '')) "
+    "THEN (SELECT COUNT(*) FROM entries e2 WHERE "
+    "  (entries.password_is_blank = 1 AND e2.password_is_blank = 1) OR "
+    "  (entries.password_is_blank = 0 AND e2.password_is_blank = 0 AND e2.password = entries.password)"
+    ") ELSE 0 END"
 )
 _HASH_REUSE_EXPR = (
     "CASE WHEN entries.hash IS NOT NULL AND TRIM(entries.hash) != '' "
@@ -81,8 +96,7 @@ _HASH_REUSE_EXPR = (
     "ELSE 0 END"
 )
 _HAS_USERPASS_EXPR = (
-    "(username IS NOT NULL AND TRIM(username) != '' "
-    "AND password IS NOT NULL AND TRIM(password) != '')"
+    f"(username IS NOT NULL AND TRIM(username) != '' AND {_HAS_PASSWORD_VALUE_EXPR})"
 )
 
 
@@ -162,6 +176,11 @@ def parse_search_query(search_str: str):
             yes = _YESNO(value)
             conditions.append(_HAS_USERPASS_EXPR if (yes ^ negate) else f"NOT {_HAS_USERPASS_EXPR}")
 
+        elif op == 'blankpass':
+            yes = _YESNO(value)
+            cond = "password_is_blank = 1"
+            conditions.append(cond if (yes ^ negate) else f"NOT ({cond})")
+
         else:
             plain_terms.append(token)
 
@@ -239,7 +258,8 @@ def build_entry_filter(p):
 
 _LIST_COLUMNS = f"""
     entries.id, entries.target_id, targets.name AS target_name,
-    entries.username, entries.password, entries.host, entries.domain, entries.service,
+    entries.username, entries.password, entries.password_is_blank,
+    entries.host, entries.domain, entries.service,
     entries.hash_type, entries.hash, entries.notes, entries.tags,
     entries.created_at, entries.updated_at,
     ({_PW_REUSE_EXPR}) AS password_reuse_count,
@@ -250,6 +270,7 @@ _LIST_COLUMNS = f"""
 def _row_to_entry(row):
     d = dict(row)
     d["tags"] = json.loads(d.get("tags") or "[]")
+    d["password_is_blank"] = bool(d.get("password_is_blank"))
     d["password_reuse_count"] = d.get("password_reuse_count") or 0
     d["hash_reuse_count"] = d.get("hash_reuse_count") or 0
     return d
@@ -384,12 +405,32 @@ def _timestamp_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
+def _apply_password_lock(body, values):
+    """A locked password (password_is_blank=true in the request) is a
+    *confirmed* empty password, stored as a real empty string rather than
+    being collapsed to None by _clean() like a merely-omitted field would be."""
+    if body.get("password_is_blank"):
+        values["password"] = ""
+        values["password_is_blank"] = True
+    else:
+        values["password_is_blank"] = False
+
+
+def _values_has_password(values):
+    return bool(values.get("password_is_blank")) or bool((values.get("password") or "").strip())
+
+
+def _row_has_password(row):
+    return bool(row["password_is_blank"]) or bool((row["password"] or "").strip())
+
+
 def _insert_entry(conn, target_id, values, tags):
     cur = conn.execute(
-        """INSERT INTO entries (target_id, username, password, host, domain, service,
-                                 hash_type, hash, notes, tags)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (target_id, values.get("username"), values.get("password"), values.get("host"),
+        """INSERT INTO entries (target_id, username, password, password_is_blank, host, domain,
+                                 service, hash_type, hash, notes, tags)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (target_id, values.get("username"), values.get("password"),
+         int(bool(values.get("password_is_blank"))), values.get("host"),
          values.get("domain"), values.get("service"), values.get("hash_type"), values.get("hash"),
          values.get("notes"), json.dumps(tags) if tags else None),
     )
@@ -406,6 +447,9 @@ def _merge_or_create_entry(conn, target_id, values, tags):
       - existing has the *other* credential field set, not this   -> annotate (flag #check + note, don't overwrite)
       - existing has neither password nor hash                    -> update in place, filling in what's given
 
+    A locked (confirmed-blank) password counts as "has a password" throughout,
+    same as any other set value.
+
     Returns (action, entry_id) where action is 'inserted', 'updated', or 'annotated'.
     """
     username = values.get("username")
@@ -419,18 +463,19 @@ def _merge_or_create_entry(conn, target_id, values, tags):
     if not existing:
         return ("inserted", _insert_entry(conn, target_id, values, tags))
 
-    pw_conflict = bool(values.get("password")) and bool((existing["password"] or "").strip())
+    pw_conflict = _values_has_password(values) and _row_has_password(existing)
     hash_conflict = bool(values.get("hash")) and bool((existing["hash"] or "").strip())
     if pw_conflict or hash_conflict:
         return ("inserted", _insert_entry(conn, target_id, values, tags))
 
-    pw_flag = bool(values.get("password")) and bool((existing["hash"] or "").strip())
-    hash_flag = bool(values.get("hash")) and bool((existing["password"] or "").strip())
+    pw_flag = _values_has_password(values) and bool((existing["hash"] or "").strip())
+    hash_flag = bool(values.get("hash")) and _row_has_password(existing)
 
     if pw_flag or hash_flag:
         note_bits = []
         if pw_flag:
-            note_bits.append(f"Possible password: {values['password']}")
+            pw_display = "(blank)" if values.get("password_is_blank") else values["password"]
+            note_bits.append(f"Possible password: {pw_display}")
         if hash_flag:
             note_bits.append(f"Possible hash: {values['hash']}")
         if values.get("notes"):
@@ -458,7 +503,13 @@ def _merge_or_create_entry(conn, target_id, values, tags):
 
     # Existing has neither password nor hash -> fill in whatever was provided.
     set_parts, params = [], []
-    for f in ("password", "host", "domain", "service", "hash_type", "hash"):
+    if values.get("password_is_blank"):
+        set_parts += ["password=?", "password_is_blank=?"]
+        params += ["", 1]
+    elif values.get("password"):
+        set_parts.append("password=?")
+        params.append(values["password"])
+    for f in ("host", "domain", "service", "hash_type", "hash"):
         if values.get(f):
             set_parts.append(f"{f}=?")
             params.append(values[f])
@@ -486,7 +537,8 @@ def api_create_entry():
     body = request.get_json(silent=True) or {}
 
     values = {f: _clean(body.get(f)) for f in EDITABLE_FIELDS}
-    if not any(values[f] for f in REQUIRED_ANY):
+    _apply_password_lock(body, values)
+    if not (values["username"] or values["hash"] or _values_has_password(values)):
         return jsonify(error="Entry needs at least a username, password, or hash"), 400
 
     target_id = body.get("target_id")
@@ -562,7 +614,18 @@ def api_update_entry(eid):
             else:
                 values[f] = row[f]
 
-        if not any(values[f] for f in REQUIRED_ANY):
+        if "password_is_blank" in body:
+            if body.get("password_is_blank"):
+                values["password"] = ""
+                values["password_is_blank"] = True
+            else:
+                values["password_is_blank"] = False
+        else:
+            values["password_is_blank"] = bool(row["password_is_blank"])
+            if values["password_is_blank"] and "password" not in body:
+                values["password"] = ""
+
+        if not (values["username"] or values["hash"] or _values_has_password(values)):
             return jsonify(error="Entry needs at least a username, password, or hash"), 400
 
         target_id = row["target_id"]
@@ -572,11 +635,11 @@ def api_update_entry(eid):
                 return jsonify(error="Unknown target_id"), 400
 
         conn.execute(
-            """UPDATE entries SET target_id=?, username=?, password=?, host=?, domain=?,
+            """UPDATE entries SET target_id=?, username=?, password=?, password_is_blank=?, host=?, domain=?,
                                    service=?, hash_type=?, hash=?, notes=?, updated_at=datetime('now')
                WHERE id=?""",
-            (target_id, values["username"], values["password"], values["host"],
-             values["domain"], values["service"], values["hash_type"], values["hash"],
+            (target_id, values["username"], values["password"], int(values["password_is_blank"]),
+             values["host"], values["domain"], values["service"], values["hash_type"], values["hash"],
              values["notes"], eid),
         )
 
@@ -664,7 +727,8 @@ def api_bulk_update_entries():
         skipped_empty = []
         for r in rows:
             merged = {f: (clean_fields[f] if f in clean_fields else r[f]) for f in REQUIRED_ANY}
-            if not any(merged.values()):
+            has_password = bool(merged.get("password")) or bool(r["password_is_blank"])
+            if not (merged.get("username") or merged.get("hash") or has_password):
                 skipped_empty.append(r["id"])
             else:
                 updated_ids.append(r["id"])
@@ -911,6 +975,8 @@ def _export_field_value(row, field):
     if field == "tags":
         tags = json.loads(row["tags"] or "[]")
         return ", ".join("#" + t for t in tags) if tags else ""
+    if field == "password" and row["password_is_blank"]:
+        return "(empty)"
     val = row[field]
     return str(val) if val not in (None, "") else ""
 
@@ -934,6 +1000,8 @@ def api_export_entries():
             needed_cols.add("targets.name AS target_name")
         else:
             needed_cols.add(f"entries.{f} AS {f}")
+    if "password" in fields:
+        needed_cols.add("entries.password_is_blank AS password_is_blank")
 
     with get_db() as conn:
         rows = conn.execute(
@@ -971,7 +1039,7 @@ def api_stats():
             "SELECT COUNT(DISTINCT username) FROM entries WHERE username IS NOT NULL AND TRIM(username) != ''"
         ).fetchone()[0]
         with_password = conn.execute(
-            "SELECT COUNT(*) FROM entries WHERE password IS NOT NULL AND TRIM(password) != ''"
+            f"SELECT COUNT(*) FROM entries WHERE {_HAS_PASSWORD_VALUE_EXPR}"
         ).fetchone()[0]
         with_hash = conn.execute(
             "SELECT COUNT(*) FROM entries WHERE hash IS NOT NULL AND TRIM(hash) != ''"

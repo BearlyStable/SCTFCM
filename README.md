@@ -11,8 +11,9 @@ Design and interaction patterns (dark theme, sidebar filters, `key:value` search
 - **SQLite storage** — everything persists locally in `src/instance/ccm.db`
 - **Targets** — group entries by box / domain / engagement, with a sidebar facet list and counts; entries can also be left unassigned
 - **Entries** with: username, password, hash type, hash, host/IP, domain, service/port, notes, tags — every field is optional except that an entry needs at least one of username, password, or hash
-- **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `userpass:yes`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
-- **Password / hash reuse detection** — entries that share a password or hash with another entry (even across targets) are flagged in the table and cross-linked in the detail panel, so finding "where else does this password work" is one click
+- **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `userpass:yes`, `blankpass:yes`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
+- **Password / hash reuse detection** — entries that share a password or hash with another entry (even across targets) are flagged in the table and cross-linked in the detail panel, so finding "where else does this password work" is one click. A confirmed-empty password (see below) counts too — several accounts sharing a blank password is exactly the kind of thing worth flagging.
+- **Confirmed-empty passwords** — the password field has a lock toggle (🔓/🔒) next to it, in both the Add Entry form and the detail panel. Locking it records "this account's password is confirmed blank" as a real, distinct fact rather than leaving the field empty/unknown — it shows as a `🔒 empty` badge in the table (never masked dots, since there's nothing hidden), counts as "has a password" everywhere (stats, `userpass:` filter, export), and is protected: a later add/import that finds an actual password for that username creates a new entry instead of silently overwriting the confirmed-blank finding.
 - **Editable in place** — click any row to open the detail panel and edit every field (including moving an entry to a different target), edit notes, and manage tags; changes save immediately
 - **Bulk edit / bulk delete** — tick entries via the row checkboxes (or "select all" on the page) to edit a shared field (target, host, domain, service, hash type) or add/remove tags across all of them at once, or delete them in one go. Only fields you explicitly enable are changed; an entry that would end up with no username, password, or hash is skipped and reported rather than silently emptied.
 - **Bulk import** — paste or drop a file to create many entries at once, in one of four formats: `user:pass`, `user:hash`, secretsdump-style (`user:rid:lm:nt:::`, auto-detected as NTLM), or CSV with a header row
@@ -125,7 +126,8 @@ Plain text searches every field. Multiple tokens combine with **AND**. Prefix an
 | `service:` | Service / port | `service:smb` |
 | `hashtype:` | Hash type | `hashtype:ntlm` |
 | `hash:` | Hash value | `hash:8846f7ea*` |
-| `userpass:yes/no` | Has both a username and a password | `userpass:yes` |
+| `userpass:yes/no` | Has both a username and a password (a locked/confirmed-blank password counts) | `userpass:yes` |
+| `blankpass:yes/no` | Password is locked as confirmed empty | `blankpass:yes` |
 | `notes:yes/no` | Has a note | `notes:yes` |
 | `tag:value` | Tagged with value | `tag:domain-admin` |
 | `target:value` | Target name (independent of the sidebar selection) | `target:DC01` |
@@ -143,6 +145,8 @@ Plain text searches every field. Multiple tokens combine with **AND**. Prefix an
 
 A common set of tags and/or a target can be applied to every row of an import.
 
+> Locking a password as confirmed-empty is currently only available through the single Add Entry form and the detail panel's edit form — bulk import has no way to signal "this password is blank, not just omitted," so an import row with no password is treated as unknown, same as before.
+
 ### What happens when the username already exists
 
 For the `user:pass`, `user:hash`, and `secretsdump` formats, each imported line is checked against existing entries with the **same username in the same target** (unassigned counts as matching unassigned) before deciding what to do:
@@ -154,6 +158,8 @@ For the `user:pass`, `user:hash`, and `secretsdump` formats, each imported line 
 | Has neither a password nor a hash yet | The existing entry is **updated in place** with the new value — this is the "I found the password for a known user" case. |
 
 `CSV` import always creates new entries and never merges, since a CSV row can carry an arbitrary mix of fields.
+
+This same merge logic runs for the single Add Entry form too. A locked/confirmed-blank password counts as "already has a value" — adding a real password for a username that already has a confirmed-blank password creates a new entry rather than silently overwriting the confirmed finding.
 
 If duplicate usernames already exist within the same target (which can happen via the "always creates a new entry" case above), a later import matching that username will match one of them somewhat arbitrarily — worth cleaning up duplicates via Bulk Edit/Delete before relying on the merge behavior.
 
