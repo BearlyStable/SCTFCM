@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCM — CTF Credential Manager</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+<!-- TOP BAR -->
+<header class="topbar flex items-center gap-3 px-4 py-2 shrink-0">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="16" r="1.6"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+  <span style="font-size:1rem;font-weight:700;color:#60a5fa;letter-spacing:0.02em">CCM</span>
+  <span style="color:#475569;font-size:0.75rem;margin-left:4px">CTF Credential Manager</span>
+  <div class="ml-auto flex items-center gap-2">
+    <button class="btn btn-ghost" id="import-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;margin-right:5px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Bulk Import
+    </button>
+    <button class="btn btn-ghost" id="export-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;margin-right:5px;vertical-align:-2px"><path d="M21 9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10"/><polyline points="16 3 21 3 21 8"/><line x1="10" y1="14" x2="21" y2="3"/></svg>Export
+    </button>
+    <button class="btn btn-primary" id="add-entry-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;margin-right:5px;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Entry
+    </button>
+  </div>
+</header>
+
+<!-- MAIN LAYOUT -->
+<div class="flex flex-1 overflow-hidden">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar flex flex-col overflow-hidden shrink-0">
+    <div class="flex-1 overflow-y-auto px-3 py-3">
+
+      <!-- Search -->
+      <div class="filter-section" style="padding-top:0">
+        <div class="filter-label">Search</div>
+        <input type="text" id="search-input" placeholder="user:admin* hash:aad3b435* -reused:yes…">
+        <details class="search-help">
+          <summary>operator reference</summary>
+          <div class="search-help-body">
+            <table>
+              <tbody>
+                <tr><td>user:</td><td>username (supports <code>*</code> wildcard)</td></tr>
+                <tr><td>pass:</td><td>password</td></tr>
+                <tr><td>host:</td><td>host / IP</td></tr>
+                <tr><td>domain:</td><td>domain</td></tr>
+                <tr><td>service:</td><td>service / port</td></tr>
+                <tr><td>hashtype:</td><td>hash type</td></tr>
+                <tr><td>hash:</td><td>hash value</td></tr>
+                <tr><td>notes:</td><td><code>yes</code> / <code>no</code> — has a note</td></tr>
+                <tr><td>tag:</td><td>tagged with value — supports <code>*</code></td></tr>
+                <tr><td>target:</td><td>target name — supports <code>*</code></td></tr>
+                <tr><td>reused:</td><td><code>yes</code> / <code>no</code> — password reused elsewhere</td></tr>
+                <tr><td>reusedhash:</td><td><code>yes</code> / <code>no</code> — hash reused elsewhere</td></tr>
+              </tbody>
+            </table>
+            <div style="margin-top:5px; color:#475569; font-size:0.7rem;">Prefix any operator with <code>-</code> to negate · operators combine with AND · plain text searches every field · search always covers every target unless you select one below or use <code>target:</code></div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Target filter -->
+      <div class="filter-section">
+        <div class="flex items-center justify-between" style="margin-bottom:6px">
+          <div class="filter-label" style="margin-bottom:0">Target</div>
+          <button class="link-btn" id="manage-targets-btn">manage</button>
+        </div>
+        <div id="target-list" style="max-height:260px;overflow-y:auto">
+          <div style="color:#475569;font-size:0.78rem;padding:4px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Flags -->
+      <div class="filter-section" style="border:none">
+        <div class="filter-label">Flags</div>
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.8rem;color:#94a3b8">
+          <input type="checkbox" id="notes-only" style="width:auto;accent-color:#3b82f6"> Has notes only
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.8rem;color:#94a3b8;margin-top:6px">
+          <input type="checkbox" id="reused-only" style="width:auto;accent-color:#f59e0b"> Reused password/hash only
+        </label>
+      </div>
+
+    </div><!-- end scroll -->
+
+    <div style="border-top:1px solid #334155;padding:10px 12px;display:flex;gap:8px">
+      <button class="btn btn-ghost flex-1" id="clear-filters-btn">Clear Filters</button>
+    </div>
+  </aside>
+
+  <!-- CONTENT AREA -->
+  <div class="flex flex-1 flex-col overflow-hidden">
+
+    <!-- STATS + PAGINATION BAR -->
+    <div class="statbar flex items-center gap-3" style="flex-wrap:wrap">
+      <div class="flex gap-3 mr-2">
+        <div class="stat-card" style="padding:4px 12px">
+          <span style="color:#64748b;font-size:0.68rem">TOTAL</span>
+          <span id="stat-total" style="font-weight:700;color:#e2e8f0;margin-left:6px">—</span>
+        </div>
+        <div class="stat-card" style="padding:4px 12px">
+          <span style="color:#93c5fd;font-size:0.68rem">W/ PASSWORD</span>
+          <span id="stat-password" style="font-weight:700;color:#93c5fd;margin-left:6px">—</span>
+        </div>
+        <div class="stat-card" style="padding:4px 12px">
+          <span style="color:#6ee7b7;font-size:0.68rem">W/ HASH</span>
+          <span id="stat-hash" style="font-weight:700;color:#6ee7b7;margin-left:6px">—</span>
+        </div>
+        <div class="stat-card" style="padding:4px 12px">
+          <span style="color:#fbbf24;font-size:0.68rem">REUSED</span>
+          <span id="stat-reused" style="font-weight:700;color:#fbbf24;margin-left:6px">—</span>
+        </div>
+        <div class="stat-card" style="padding:4px 12px">
+          <span style="color:#c4b5fd;font-size:0.68rem">TARGETS</span>
+          <span id="stat-targets" style="font-weight:700;color:#c4b5fd;margin-left:6px">—</span>
+        </div>
+      </div>
+
+      <span id="filter-info" style="color:#64748b;font-size:0.78rem;margin-left:auto"></span>
+
+      <div class="flex items-center gap-1" id="pagination-controls" style="margin-left:8px"></div>
+      <select id="per-page-select" style="width:70px;padding:3px 6px">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="200">200</option>
+      </select>
+    </div>
+
+    <!-- TABLE + DETAIL split -->
+    <div class="flex flex-1 overflow-hidden">
+
+      <!-- ENTRIES TABLE -->
+      <div class="flex-1 overflow-auto" id="table-container">
+        <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+          <thead>
+            <tr style="text-align:left;color:#64748b;font-size:0.68rem;letter-spacing:0.06em;text-transform:uppercase">
+              <th data-sort="username"  style="padding:7px 10px;width:160px;border-bottom:1px solid #334155">Username<i class="sort-icon">↕</i></th>
+              <th                        style="padding:7px 10px;width:170px;border-bottom:1px solid #334155">Password</th>
+              <th data-sort="host"      style="padding:7px 10px;width:150px;border-bottom:1px solid #334155">Host / Domain<i class="sort-icon">↕</i></th>
+              <th                        style="padding:7px 10px;width:210px;border-bottom:1px solid #334155">Hash</th>
+              <th                        style="padding:7px 10px;width:110px;border-bottom:1px solid #334155">Target</th>
+              <th                        style="padding:7px 10px;width:130px;border-bottom:1px solid #334155">Tags</th>
+              <th                        style="padding:7px 10px;border-bottom:1px solid #334155">Notes</th>
+              <th data-sort="updated_at" style="padding:7px 10px;width:90px;border-bottom:1px solid #334155">Updated<i class="sort-icon">↕</i></th>
+              <th                        style="padding:4px 6px;width:30px;border-bottom:1px solid #334155"></th>
+            </tr>
+          </thead>
+          <tbody id="entries-tbody">
+            <tr><td colspan="9" style="text-align:center;padding:40px;color:#475569">No entries yet — add one to get started.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- DETAIL PANEL -->
+      <div id="detail-panel" class="detail-panel flex-col overflow-hidden" style="display:none;border-left:1px solid #334155;background:#0f172a">
+        <div style="background:#1e293b;border-bottom:1px solid #334155;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;shrink-0">
+          <span style="font-weight:700;color:#e2e8f0;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="detail-title">Entry Details</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <button id="detail-delete-btn" class="btn btn-danger" style="padding:2px 10px;font-size:0.72rem">Delete</button>
+            <button id="close-detail-btn" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:1.3rem;line-height:1;flex-shrink:0;margin-left:4px" title="Close">&times;</button>
+          </div>
+        </div>
+        <div id="detail-content" class="flex-1 overflow-y-auto" style="padding:14px"></div>
+      </div>
+
+    </div><!-- end table+detail split -->
+  </div><!-- end content area -->
+</div><!-- end main layout -->
+
+<!-- ADD / EDIT ENTRY MODAL -->
+<div id="entry-modal" class="overlay" style="display:none">
+  <div class="modal" style="width:520px">
+    <h2 id="entry-modal-title" style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:16px">Add Entry</h2>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Target</label>
+        <select id="entry-target"><option value="">— unassigned —</option></select>
+      </div>
+      <div class="form-field"></div>
+      <div class="form-field">
+        <label>Username</label>
+        <input type="text" id="entry-username">
+      </div>
+      <div class="form-field">
+        <label>Password</label>
+        <input type="text" id="entry-password">
+      </div>
+      <div class="form-field">
+        <label>Host / IP</label>
+        <input type="text" id="entry-host">
+      </div>
+      <div class="form-field">
+        <label>Domain</label>
+        <input type="text" id="entry-domain">
+      </div>
+      <div class="form-field">
+        <label>Service / Port</label>
+        <input type="text" id="entry-service">
+      </div>
+      <div class="form-field">
+        <label>Hash Type</label>
+        <input type="text" id="entry-hashtype" placeholder="NTLM, bcrypt, SHA256…">
+      </div>
+      <div class="form-field" style="grid-column:1 / -1">
+        <label>Hash</label>
+        <input type="text" id="entry-hash">
+      </div>
+      <div class="form-field" style="grid-column:1 / -1">
+        <label>Tags <span style="color:#475569;font-weight:400">(comma separated)</span></label>
+        <input type="text" id="entry-tags" placeholder="domain-admin, kerberoastable">
+      </div>
+      <div class="form-field" style="grid-column:1 / -1">
+        <label>Notes</label>
+        <textarea id="entry-notes" rows="3"></textarea>
+      </div>
+    </div>
+    <p style="color:#64748b;font-size:0.72rem;margin-top:8px">At least one of username, password, or hash is required.</p>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn btn-ghost" id="cancel-entry-btn">Cancel</button>
+      <button class="btn btn-primary" id="save-entry-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- MANAGE TARGETS MODAL -->
+<div id="targets-modal" class="overlay" style="display:none">
+  <div class="modal" style="width:460px">
+    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:12px">Manage Targets</h2>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <input type="text" id="new-target-name" placeholder="Target name (e.g. DC01, 10.10.10.5)">
+      <button class="btn btn-primary" id="add-target-btn" style="white-space:nowrap">Add</button>
+    </div>
+    <div id="targets-manage-list" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost" id="close-targets-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- BULK IMPORT MODAL -->
+<div id="import-modal" class="overlay" style="display:none">
+  <div class="modal" style="width:560px">
+    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:6px">Bulk Import</h2>
+    <p style="color:#64748b;font-size:0.78rem;margin-bottom:14px">Paste lines (or drop a file) to create multiple entries at once.</p>
+
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Format</label>
+        <select id="import-format">
+          <option value="user_pass">user:pass</option>
+          <option value="user_hash">user:hash</option>
+          <option value="secretsdump">secretsdump (user:rid:lm:nt:::)</option>
+          <option value="csv">CSV (with header row)</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Assign to target</label>
+        <select id="import-target"><option value="">— unassigned —</option></select>
+      </div>
+      <div class="form-field" id="import-hashtype-field">
+        <label>Hash Type <span style="color:#475569;font-weight:400">(applied to all)</span></label>
+        <input type="text" id="import-hashtype" placeholder="NTLM, bcrypt…">
+      </div>
+      <div class="form-field">
+        <label>Tags <span style="color:#475569;font-weight:400">(applied to all, comma separated)</span></label>
+        <input type="text" id="import-tags">
+      </div>
+    </div>
+
+    <div class="drop-zone" id="import-drop-zone" style="margin-top:12px;padding:14px">
+      <p style="font-size:0.8rem">Drop a <code>.txt</code> / <code>.csv</code> file here or <span style="color:#60a5fa;text-decoration:underline;cursor:pointer" id="import-browse-link">browse</span> — or paste below</p>
+    </div>
+    <input type="file" id="import-file-input" accept=".txt,.csv,.log" style="display:none">
+
+    <textarea id="import-textarea" rows="8" style="margin-top:10px;font-size:0.78rem" placeholder="admin:P@ssw0rd
+jdoe:1104:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::"></textarea>
+
+    <div id="import-status" style="margin-top:8px;font-size:0.78rem;color:#94a3b8"></div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn btn-ghost" id="cancel-import-btn">Cancel</button>
+      <button class="btn btn-primary" id="do-import-btn">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div id="export-modal" class="overlay" style="display:none">
+  <div class="modal">
+    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:6px">Export as Markdown</h2>
+    <p style="color:#64748b;font-size:0.78rem;margin-bottom:14px">Exports every entry matching the current filters, not just the current page.</p>
+    <div id="export-fields" style="display:flex;flex-direction:column;gap:7px;max-height:280px;overflow-y:auto"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn btn-ghost" id="cancel-export-btn">Cancel</button>
+      <button class="btn btn-primary" id="do-export-btn">Export</button>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #1e293b;margin:18px 0 14px">
+    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:6px">Database Backup</h2>
+    <p style="color:#64748b;font-size:0.78rem;margin-bottom:14px">Downloads the full SQLite database — all targets, entries, tags and notes.</p>
+    <div style="display:flex;justify-content:flex-end">
+      <button class="btn btn-ghost" id="do-backup-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;margin-right:5px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download Backup
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
