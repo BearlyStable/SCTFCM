@@ -141,7 +141,10 @@ const COLUMN_DEFS = [
 
 function loadVisibleColumns() {
   try {
-    const raw = localStorage.getItem('ccm-visible-columns');
+    // sctfcm-visible-columns is the current key; ccm-visible-columns is the
+    // pre-rename key, read once as a fallback so an existing viewer's column
+    // choices survive the CCM -> SCTFCM rename.
+    const raw = localStorage.getItem('sctfcm-visible-columns') || localStorage.getItem('ccm-visible-columns');
     if (raw) return { ...Object.fromEntries(COLUMN_DEFS.map(([k]) => [k, true])), ...JSON.parse(raw) };
   } catch {}
   return Object.fromEntries(COLUMN_DEFS.map(([k]) => [k, true]));
@@ -150,7 +153,7 @@ function loadVisibleColumns() {
 const visibleColumns = loadVisibleColumns();
 
 function saveVisibleColumns() {
-  try { localStorage.setItem('ccm-visible-columns', JSON.stringify(visibleColumns)); } catch {}
+  try { localStorage.setItem('sctfcm-visible-columns', JSON.stringify(visibleColumns)); } catch {}
 }
 
 function applyColumnVisibility() {

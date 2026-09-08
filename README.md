@@ -1,4 +1,4 @@
-# CCM — CTF Credential Manager
+# SCTFCM — Simple CTF Credential Manager
 
 A local, web-based scratchpad for credentials found during a CTF or pentest engagement — usernames, passwords, hashes, and the context around them (host, domain, service) — searchable, taggable, and exportable as a Markdown table.
 
@@ -8,7 +8,7 @@ Design and interaction patterns (dark theme, sidebar filters, `key:value` search
 
 ## Features
 
-- **SQLite storage** — everything persists locally in `src/instance/ccm.db`
+- **SQLite storage** — everything persists locally in `src/instance/sctfcm.db`
 - **Targets** — group entries by box / domain / engagement, with a sidebar facet list and counts; entries can also be left unassigned
 - **Entries** with: username, password, hash type, hash, host/IP, domain, service/port, notes, tags — every field is optional except that an entry needs at least one of username, password, or hash
 - **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `userpass:yes`, `blankpass:yes`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
@@ -73,14 +73,14 @@ make release
 make release VERSION=1.0.0
 ```
 
-This builds the `ccm:latest` image and exports it as a compressed `ccm-latest.tar.gz` in the repo root. Copy that one file across the air gap (USB stick, etc.) — it's the only thing that needs to move.
+This builds the `sctfcm:latest` image and exports it as a compressed `sctfcm-latest.tar.gz` in the repo root. Copy that one file across the air gap (USB stick, etc.) — it's the only thing that needs to move.
 
 ### Load and run on the offline machine
 
 Requires Docker itself to already be installed there (install it, like the image, while you still have internet).
 
 ```bash
-docker load -i ccm-latest.tar.gz
+docker load -i sctfcm-latest.tar.gz
 docker compose -f docker/docker-compose.yml up -d
 ```
 
@@ -89,12 +89,12 @@ or without Compose:
 ```bash
 docker run -d \
   -p 5050:5050 \
-  -v ccm-instance:/app/instance \
-  --name ccm \
-  ccm:latest
+  -v sctfcm-instance:/app/instance \
+  --name sctfcm \
+  sctfcm:latest
 ```
 
-The app is then available at **http://localhost:5050**. The named volume (`ccm-instance`) keeps the SQLite database on disk across container restarts and image upgrades, starting empty the first time.
+The app is then available at **http://localhost:5050**. The named volume (`sctfcm-instance`) keeps the SQLite database on disk across container restarts and image upgrades, starting empty the first time.
 
 To stop it:
 
@@ -108,8 +108,8 @@ docker compose -f docker/docker-compose.yml down -v    # also wipes the volume
 The in-app **Download Backup** button (Export dialog) downloads the SQLite database as a single file — same mechanism whether running natively or in Docker. To restore one into a Docker volume:
 
 ```bash
-docker run --rm -v ccm-instance:/data -v "$(pwd):/backup" alpine \
-  cp /backup/ccm-backup-2026-01-01.db /data/ccm.db
+docker run --rm -v sctfcm-instance:/data -v "$(pwd):/backup" alpine \
+  cp /backup/sctfcm-backup-2026-01-01.db /data/sctfcm.db
 ```
 
 ---
@@ -117,7 +117,7 @@ docker run --rm -v ccm-instance:/data -v "$(pwd):/backup" alpine \
 ## Project structure
 
 ```
-CCM/
+SCTFCM/
 ├── Makefile
 ├── requirements.txt
 ├── .dockerignore
@@ -131,7 +131,7 @@ CCM/
 │   ├── static/
 │   │   ├── style.css     # All custom styles (dark theme)
 │   │   └── app.js        # All application logic (state, API calls, rendering)
-│   └── instance/         # Created at runtime — contains ccm.db (SQLite)
+│   └── instance/         # Created at runtime — contains sctfcm.db (SQLite)
 ```
 
 ---

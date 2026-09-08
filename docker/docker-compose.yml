@@ -1,11 +1,11 @@
 services:
-  ccm:
-    image: ccm:latest
+  sctfcm:
+    image: sctfcm:latest
     ports:
       - "127.0.0.1:5050:5050"
     volumes:
-      - ccm-instance:/app/instance
+      - sctfcm-instance:/app/instance
     restart: unless-stopped
 
 volumes:
-  ccm-instance:
+  sctfcm-instance:

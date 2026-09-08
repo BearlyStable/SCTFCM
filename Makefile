@@ -9,7 +9,7 @@ endif
 VENV_PYTHON := $(VENV_BIN)/python
 PIP         := $(VENV_BIN)/pip
 
-IMAGE   := ccm
+IMAGE   := sctfcm
 VERSION := latest
 
 .PHONY: setup run clean help release

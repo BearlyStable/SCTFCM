@@ -12,9 +12,19 @@ from flask import Flask, request, jsonify, render_template, Response
 
 BASE_DIR = Path(__file__).parent
 INSTANCE_DIR = BASE_DIR / "instance"
-DB_PATH = INSTANCE_DIR / "ccm.db"
+DB_PATH = INSTANCE_DIR / "sctfcm.db"
 
 INSTANCE_DIR.mkdir(exist_ok=True)
+
+# One-time migration: this project was previously named CCM. If an old
+# ccm.db is still here and the new sctfcm.db hasn't been created yet, move
+# it (and its WAL/SHM sidecar files, if present) over so existing data isn't
+# orphaned under the old filename.
+if not DB_PATH.exists():
+    for suffix in ("", "-wal", "-shm"):
+        legacy = INSTANCE_DIR / f"ccm.db{suffix}"
+        if legacy.exists():
+            legacy.rename(INSTANCE_DIR / f"sctfcm.db{suffix}")
 
 app = Flask(__name__)
 
@@ -1021,7 +1031,7 @@ def api_export_entries():
             "| " + " | ".join(_md_escape(_export_field_value(row, f)) for f in fields) + " |"
         )
 
-    filename = f"ccm-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.md"
+    filename = f"sctfcm-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.md"
     return Response(
         "\n".join(lines) + "\n",
         mimetype="text/markdown",
@@ -1079,7 +1089,7 @@ def api_backup():
             pass
 
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    filename = f"ccm-backup-{date_str}.db"
+    filename = f"sctfcm-backup-{date_str}.db"
     return Response(
         raw,
         mimetype="application/octet-stream",
