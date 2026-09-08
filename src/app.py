@@ -504,6 +504,108 @@ def api_delete_entry(eid):
     return jsonify(ok=True)
 
 
+# ── Bulk edit / delete (apply a change to a set of selected entries) ──────────
+
+def _int_list(raw):
+    out = []
+    for v in (raw or []):
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError):
+            pass
+    return list(dict.fromkeys(out))
+
+
+@app.route("/api/entries/bulk", methods=["PATCH"])
+def api_bulk_update_entries():
+    body = request.get_json(silent=True) or {}
+    ids = _int_list(body.get("ids"))
+    if not ids:
+        return jsonify(error="No ids provided"), 400
+
+    raw_fields = body.get("fields") or {}
+    if not isinstance(raw_fields, dict):
+        return jsonify(error="fields must be an object"), 400
+
+    target_id_set = "target_id" in raw_fields
+    target_id_val = None
+    if target_id_set:
+        raw = raw_fields.pop("target_id")
+        target_id_val = int(raw) if raw else None
+
+    clean_fields = {f: _clean(v) for f, v in raw_fields.items() if f in EDITABLE_FIELDS}
+
+    tags_add = [t.strip().lstrip('#') for t in (body.get("tags_add") or []) if isinstance(t, str) and t.strip()]
+    tags_remove = [t.strip().lstrip('#') for t in (body.get("tags_remove") or []) if isinstance(t, str) and t.strip()]
+
+    if not clean_fields and not target_id_set and not tags_add and not tags_remove:
+        return jsonify(error="No changes specified"), 400
+
+    with get_db() as conn:
+        if target_id_set and target_id_val and not conn.execute(
+            "SELECT 1 FROM targets WHERE id=?", (target_id_val,)
+        ).fetchone():
+            return jsonify(error="Unknown target_id"), 400
+
+        placeholders = ",".join("?" * len(ids))
+        rows = conn.execute(f"SELECT * FROM entries WHERE id IN ({placeholders})", ids).fetchall()
+        found_ids = {r["id"] for r in rows}
+        not_found = [i for i in ids if i not in found_ids]
+
+        updated_ids = []
+        skipped_empty = []
+        for r in rows:
+            merged = {f: (clean_fields[f] if f in clean_fields else r[f]) for f in REQUIRED_ANY}
+            if not any(merged.values()):
+                skipped_empty.append(r["id"])
+            else:
+                updated_ids.append(r["id"])
+
+        if updated_ids and (clean_fields or target_id_set):
+            set_parts = [f"{f}=?" for f in clean_fields]
+            params = list(clean_fields.values())
+            if target_id_set:
+                set_parts.append("target_id=?")
+                params.append(target_id_val)
+            set_parts.append("updated_at=datetime('now')")
+            ph2 = ",".join("?" * len(updated_ids))
+            conn.execute(
+                f"UPDATE entries SET {', '.join(set_parts)} WHERE id IN ({ph2})",
+                params + updated_ids,
+            )
+
+        if tags_add or tags_remove:
+            for r in rows:
+                cur_tags = json.loads(r["tags"] or "[]")
+                cur_tags = [t for t in cur_tags if t not in tags_remove]
+                for t in tags_add:
+                    if t not in cur_tags:
+                        cur_tags.append(t)
+                conn.execute(
+                    "UPDATE entries SET tags=?, updated_at=datetime('now') WHERE id=?",
+                    (json.dumps(cur_tags) if cur_tags else None, r["id"]),
+                )
+
+    return jsonify({
+        "updated": len(updated_ids),
+        "tagged": len(rows) if (tags_add or tags_remove) else 0,
+        "skipped_empty": skipped_empty,
+        "not_found": not_found,
+    })
+
+
+@app.route("/api/entries/bulk", methods=["DELETE"])
+def api_bulk_delete_entries():
+    body = request.get_json(silent=True) or {}
+    ids = _int_list(body.get("ids"))
+    if not ids:
+        return jsonify(error="No ids provided"), 400
+    with get_db() as conn:
+        placeholders = ",".join("?" * len(ids))
+        cur = conn.execute(f"DELETE FROM entries WHERE id IN ({placeholders})", ids)
+    return jsonify({"deleted": cur.rowcount})
+
+
 # ── Bulk import ────────────────────────────────────────────────────────────────
 
 _KNOWN_CSV_FIELDS = {

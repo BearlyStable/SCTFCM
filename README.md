@@ -14,7 +14,9 @@ Design and interaction patterns (dark theme, sidebar filters, `key:value` search
 - **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
 - **Password / hash reuse detection** — entries that share a password or hash with another entry (even across targets) are flagged in the table and cross-linked in the detail panel, so finding "where else does this password work" is one click
 - **Editable in place** — click any row to open the detail panel and edit every field (including moving an entry to a different target), edit notes, and manage tags; changes save immediately
+- **Bulk edit / bulk delete** — tick entries via the row checkboxes (or "select all" on the page) to edit a shared field (target, host, domain, service, hash type) or add/remove tags across all of them at once, or delete them in one go. Only fields you explicitly enable are changed; an entry that would end up with no username, password, or hash is skipped and reported rather than silently emptied.
 - **Bulk import** — paste or drop a file to create many entries at once, in one of four formats: `user:pass`, `user:hash`, secretsdump-style (`user:rid:lm:nt:::`, auto-detected as NTLM), or CSV with a header row
+- **Toggleable columns** — Password, Host/Domain, Hash, Target, Tags, Notes, and Updated can each be hidden via the "Columns" control when you don't need them visible; the choice is remembered in the browser
 - **Markdown export** — export the entries matching the current filters (not just the current page) as a Markdown table, choosing which columns to include
 - **Database backup** — download the full SQLite database from the Export dialog
 - **Masked credentials** — passwords and hashes are masked in the table by default with a click-to-reveal toggle and a copy button, to avoid shoulder-surfing on a shared screen
@@ -24,22 +26,34 @@ Design and interaction patterns (dark theme, sidebar filters, `key:value` search
 ## Requirements
 
 - Python 3.10+
+- `make` (optional, but simplest — used below; works as-is under WSL / Linux / macOS)
 
 ## Installation & running
+
+Using the Makefile:
+
+```bash
+make setup   # creates .venv and installs dependencies
+make run     # starts the server
+```
+
+Or manually:
 
 ```bash
 python -m venv .venv
 
 # Windows
 .venv\Scripts\activate
-# macOS / Linux
+# macOS / Linux / WSL
 source .venv/bin/activate
 
 pip install -r requirements.txt
 python src/app.py
 ```
 
-The server starts on **http://localhost:5000**.
+The server starts on **http://localhost:5050**.
+
+Run `make clean` to remove the virtual environment, database, and Python caches. Run `make help` to list all targets.
 
 > **Note:** This application has no authentication and is intended for local/trusted-network use only — the data it stores (plaintext credentials, hashes) is sensitive. Do not expose it to an untrusted network.
 
@@ -49,6 +63,7 @@ The server starts on **http://localhost:5000**.
 
 ```
 CCM/
+├── Makefile
 ├── requirements.txt
 ├── src/
 │   ├── app.py            # Flask application — SQLite logic, search parser, REST API
@@ -77,6 +92,8 @@ CCM/
 | `PATCH` | `/api/entries/<id>` | Update an entry's fields |
 | `PATCH` | `/api/entries/<id>/tags` | Replace an entry's tag list (`{"tags": [...]}`) |
 | `DELETE` | `/api/entries/<id>` | Delete an entry |
+| `PATCH` | `/api/entries/bulk` | Apply field changes and/or tag add/remove to a set of entries (`{ids, fields, tags_add, tags_remove}`) |
+| `DELETE` | `/api/entries/bulk` | Delete a set of entries (`{"ids": [...]}`) |
 | `POST` | `/api/entries/bulk_import` | Create many entries from pasted text (see formats below) |
 | `GET` | `/api/entries/export` | Download the current filtered view as a Markdown table |
 | `GET` | `/api/stats` | Summary counts for the top stats bar |

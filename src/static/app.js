@@ -85,7 +85,70 @@ const state = {
   selectedEntryId: null,
   sortBy: '',
   sortDir: 'desc',
+  selectedIds: new Set(),
+  currentPageIds: [],
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Column visibility (per-viewer preference, persisted locally)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COLUMN_DEFS = [
+  ['password', 'Password'],
+  ['host',     'Host / Domain'],
+  ['hash',     'Hash'],
+  ['target',   'Target'],
+  ['tags',     'Tags'],
+  ['notes',    'Notes'],
+  ['updated',  'Updated'],
+];
+
+function loadVisibleColumns() {
+  try {
+    const raw = localStorage.getItem('ccm-visible-columns');
+    if (raw) return { ...Object.fromEntries(COLUMN_DEFS.map(([k]) => [k, true])), ...JSON.parse(raw) };
+  } catch {}
+  return Object.fromEntries(COLUMN_DEFS.map(([k]) => [k, true]));
+}
+
+const visibleColumns = loadVisibleColumns();
+
+function saveVisibleColumns() {
+  try { localStorage.setItem('ccm-visible-columns', JSON.stringify(visibleColumns)); } catch {}
+}
+
+function applyColumnVisibility() {
+  COLUMN_DEFS.forEach(([key]) => {
+    const show = visibleColumns[key] !== false;
+    qsa(`[data-col="${key}"]`).forEach(el => { el.style.display = show ? '' : 'none'; });
+  });
+}
+
+function renderColumnsPanel() {
+  const panel = qs('#columns-panel');
+  panel.innerHTML = COLUMN_DEFS.map(([key, label]) => `
+    <label><input type="checkbox" class="col-toggle" data-key="${key}" ${visibleColumns[key] !== false ? 'checked' : ''}> ${esc(label)}</label>
+  `).join('');
+  qsa('.col-toggle', panel).forEach(cb => {
+    cb.addEventListener('change', () => {
+      visibleColumns[cb.dataset.key] = cb.checked;
+      saveVisibleColumns();
+      applyColumnVisibility();
+    });
+  });
+}
+
+qs('#columns-btn').addEventListener('click', e => {
+  e.stopPropagation();
+  const panel = qs('#columns-panel');
+  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+});
+document.addEventListener('click', e => {
+  const panel = qs('#columns-panel');
+  if (panel.style.display !== 'none' && !e.target.closest('#columns-panel') && !e.target.closest('#columns-btn')) {
+    panel.style.display = 'none';
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API
@@ -216,7 +279,7 @@ function updateSortHeaders() {
 
 async function loadEntries() {
   const tbody = qs('#entries-tbody');
-  tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:24px;color:#475569">Loading…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#475569">Loading…</td></tr>`;
 
   const data = await api('/api/entries?' + buildQueryParams());
   state.total = data.total;
@@ -247,14 +310,19 @@ function reuseBadge(count, label) {
 
 function renderEntries(entries) {
   const tbody = qs('#entries-tbody');
+  state.currentPageIds = entries.map(en => en.id);
+
   if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:#475569">No entries match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#475569">No entries match the current filters.</td></tr>`;
+    updateBulkBar();
+    applyColumnVisibility();
     return;
   }
 
   tbody.innerHTML = entries.map(en => {
     const bg = en.id === state.selectedEntryId ? 'background:#1e3a5f' : '';
     const reusedRow = (en.password_reuse_count > 1 || en.hash_reuse_count > 1) ? ' row-reused' : '';
+    const checked = state.selectedIds.has(en.id) ? 'checked' : '';
 
     const targetCell = en.target_name
       ? `<span class="badge badge-target">${esc(en.target_name)}</span>`
@@ -269,24 +337,37 @@ function renderEntries(entries) {
       : (en.hash_type ? `<span class="badge badge-hashtype">${esc(en.hash_type)}</span>` : '<span class="cred-empty">—</span>');
 
     return `<tr class="row-hover${reusedRow}" data-id="${en.id}" style="border-bottom:1px solid #1e293b;${bg}">
+      <td style="padding:7px 6px;text-align:center"><input type="checkbox" class="row-select-cb" data-id="${en.id}" style="width:auto;accent-color:#3b82f6" ${checked}></td>
       <td style="padding:7px 10px;font-weight:600;color:#e2e8f0">${en.username ? esc(en.username) : '<span class="cred-empty">—</span>'}</td>
-      <td style="padding:7px 10px">${credCellHtml(en.password)} ${reuseBadge(en.password_reuse_count, 'Password')}</td>
-      <td style="padding:7px 10px">${hostCell}</td>
-      <td style="padding:7px 10px">${hashCell} ${reuseBadge(en.hash_reuse_count, 'Hash')}</td>
-      <td style="padding:7px 10px">${targetCell}</td>
-      <td style="padding:7px 10px">${tagsPreview(en.tags)}</td>
-      <td style="padding:7px 10px">${textPreview(en.notes)}</td>
-      <td style="padding:7px 10px;color:#64748b;font-size:0.72rem">${fmtDate(en.updated_at)}</td>
+      <td data-col="password" style="padding:7px 10px">${credCellHtml(en.password)} ${reuseBadge(en.password_reuse_count, 'Password')}</td>
+      <td data-col="host" style="padding:7px 10px">${hostCell}</td>
+      <td data-col="hash" style="padding:7px 10px">${hashCell} ${reuseBadge(en.hash_reuse_count, 'Hash')}</td>
+      <td data-col="target" style="padding:7px 10px">${targetCell}</td>
+      <td data-col="tags" style="padding:7px 10px">${tagsPreview(en.tags)}</td>
+      <td data-col="notes" style="padding:7px 10px">${textPreview(en.notes)}</td>
+      <td data-col="updated" style="padding:7px 10px;color:#64748b;font-size:0.72rem">${fmtDate(en.updated_at)}</td>
       <td style="padding:4px 6px;text-align:center">
         <button class="btn-icon row-delete-btn" data-id="${en.id}" title="Delete">&#128465;</button>
       </td>
     </tr>`;
   }).join('');
 
+  applyColumnVisibility();
+  updateBulkBar();
+
   qsa('tr[data-id]', tbody).forEach(row => {
     row.addEventListener('click', e => {
-      if (e.target.closest('.row-delete-btn') || e.target.closest('.cred-value')) return;
+      if (e.target.closest('.row-delete-btn') || e.target.closest('.cred-value') || e.target.closest('.row-select-cb')) return;
       showDetail(parseInt(row.dataset.id));
+    });
+  });
+
+  qsa('.row-select-cb', tbody).forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = parseInt(cb.dataset.id);
+      if (cb.checked) state.selectedIds.add(id);
+      else state.selectedIds.delete(id);
+      updateBulkBar();
     });
   });
 
@@ -303,6 +384,7 @@ async function deleteEntry(id) {
   try {
     await api(`/api/entries/${id}`, { method: 'DELETE' });
     if (state.selectedEntryId === id) closeDetail();
+    state.selectedIds.delete(id);
     showToast('Entry deleted');
     await Promise.all([loadEntries(), loadStats(), loadTargets()]);
   } catch (err) {
@@ -343,6 +425,132 @@ function renderPagination(total, page, perPage) {
     btn.addEventListener('click', () => { state.page = parseInt(btn.dataset.page); loadEntries(); });
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bulk selection & actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateBulkBar() {
+  const n = state.selectedIds.size;
+  qs('#bulk-bar').style.display = n ? 'flex' : 'none';
+  qs('#bulk-count').textContent = `${n} selected`;
+
+  const selectAll = qs('#select-all-cb');
+  const onPage = state.currentPageIds;
+  const selectedOnPage = onPage.filter(id => state.selectedIds.has(id)).length;
+  selectAll.checked = onPage.length > 0 && selectedOnPage === onPage.length;
+  selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < onPage.length;
+}
+
+qs('#select-all-cb').addEventListener('change', e => {
+  if (e.target.checked) state.currentPageIds.forEach(id => state.selectedIds.add(id));
+  else state.currentPageIds.forEach(id => state.selectedIds.delete(id));
+  qsa('.row-select-cb').forEach(cb => { cb.checked = state.selectedIds.has(parseInt(cb.dataset.id)); });
+  updateBulkBar();
+});
+
+qs('#bulk-clear-btn').addEventListener('click', () => {
+  state.selectedIds.clear();
+  qsa('.row-select-cb').forEach(cb => { cb.checked = false; });
+  updateBulkBar();
+});
+
+qs('#bulk-delete-btn').addEventListener('click', async () => {
+  const ids = Array.from(state.selectedIds);
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} selected entr${ids.length === 1 ? 'y' : 'ies'}? This cannot be undone.`)) return;
+  try {
+    const result = await api('/api/entries/bulk', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    state.selectedIds.clear();
+    showToast(`Deleted ${result.deleted} entries`);
+    await Promise.all([loadEntries(), loadStats(), loadTargets()]);
+  } catch (err) {
+    showToast('Bulk delete failed: ' + err.message, 'err');
+  }
+});
+
+// ── Bulk edit modal ─────────────────────────────────────────────────────────
+
+const BULK_EDIT_FIELDS = [
+  ['target_id', 'Target', 'select'],
+  ['host',      'Host / IP', 'text'],
+  ['domain',    'Domain', 'text'],
+  ['service',   'Service / Port', 'text'],
+  ['hash_type', 'Hash Type', 'text'],
+];
+
+function renderBulkEditFields() {
+  const container = qs('#bulk-edit-fields');
+  container.innerHTML = BULK_EDIT_FIELDS.map(([key, label, type]) => {
+    const control = type === 'select'
+      ? `<select id="bulk-f-${key}" disabled><option value="">— unassigned —</option>${
+          state.targets.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')
+        }</select>`
+      : `<input type="text" id="bulk-f-${key}" disabled>`;
+    return `<div class="form-field" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" class="bulk-f-toggle" data-key="${key}" style="width:auto;accent-color:#3b82f6">
+      <span style="min-width:110px;color:#94a3b8;font-size:0.78rem">${esc(label)}</span>
+      ${control}
+    </div>`;
+  }).join('');
+
+  qsa('.bulk-f-toggle', container).forEach(cb => {
+    cb.addEventListener('change', () => {
+      qs(`#bulk-f-${cb.dataset.key}`).disabled = !cb.checked;
+    });
+  });
+}
+
+qs('#bulk-edit-btn').addEventListener('click', () => {
+  const n = state.selectedIds.size;
+  if (!n) return;
+  qs('#bulk-edit-count').textContent = `Applying to ${n} selected entr${n === 1 ? 'y' : 'ies'}.`;
+  renderBulkEditFields();
+  qs('#bulk-tags-add').value = '';
+  qs('#bulk-tags-remove').value = '';
+  qs('#bulk-edit-modal').style.display = 'flex';
+});
+
+qs('#cancel-bulk-edit-btn').addEventListener('click', () => { qs('#bulk-edit-modal').style.display = 'none'; });
+qs('#bulk-edit-modal').addEventListener('click', e => {
+  if (e.target === qs('#bulk-edit-modal')) qs('#bulk-edit-modal').style.display = 'none';
+});
+
+qs('#do-bulk-edit-btn').addEventListener('click', async () => {
+  const fields = {};
+  qsa('.bulk-f-toggle:checked').forEach(cb => {
+    const key = cb.dataset.key;
+    const el = qs(`#bulk-f-${key}`);
+    fields[key] = key === 'target_id' ? (el.value || null) : el.value;
+  });
+  const tagsAdd = qs('#bulk-tags-add').value.split(',').map(t => t.trim().replace(/^#+/, '')).filter(Boolean);
+  const tagsRemove = qs('#bulk-tags-remove').value.split(',').map(t => t.trim().replace(/^#+/, '')).filter(Boolean);
+
+  if (!Object.keys(fields).length && !tagsAdd.length && !tagsRemove.length) {
+    showToast('Enable at least one field to change', 'err');
+    return;
+  }
+
+  try {
+    const result = await api('/api/entries/bulk', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(state.selectedIds), fields, tags_add: tagsAdd, tags_remove: tagsRemove }),
+    });
+    let msg = `Updated ${result.updated} entries`;
+    if (result.skipped_empty.length) msg += `, skipped ${result.skipped_empty.length} (would have no username/password/hash)`;
+    showToast(msg);
+    qs('#bulk-edit-modal').style.display = 'none';
+    state.selectedIds.clear();
+    await Promise.all([loadEntries(), loadStats(), loadTargets()]);
+  } catch (err) {
+    showToast('Bulk edit failed: ' + err.message, 'err');
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Detail panel
@@ -876,6 +1084,8 @@ qs('#do-export-btn').addEventListener('click', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function init() {
+  renderColumnsPanel();
+  applyColumnVisibility();
   await loadTargets();
   await Promise.all([loadStats(), loadEntries()]);
 }

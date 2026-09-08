@@ -127,6 +127,18 @@
         <option value="100">100</option>
         <option value="200">200</option>
       </select>
+      <div style="position:relative">
+        <button class="btn btn-ghost" id="columns-btn">Columns</button>
+        <div id="columns-panel" class="columns-panel" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- BULK ACTIONS BAR -->
+    <div id="bulk-bar" class="bulk-bar" style="display:none">
+      <span id="bulk-count"></span>
+      <button class="btn btn-ghost" id="bulk-edit-btn">Bulk Edit</button>
+      <button class="btn btn-danger" id="bulk-delete-btn">Delete Selected</button>
+      <button class="link-btn" id="bulk-clear-btn" style="margin-left:auto">clear selection</button>
     </div>
 
     <!-- TABLE + DETAIL split -->
@@ -137,19 +149,20 @@
         <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
           <thead>
             <tr style="text-align:left;color:#64748b;font-size:0.68rem;letter-spacing:0.06em;text-transform:uppercase">
+              <th style="padding:7px 6px;width:26px;border-bottom:1px solid #334155"><input type="checkbox" id="select-all-cb" style="width:auto;accent-color:#3b82f6"></th>
               <th data-sort="username"  style="padding:7px 10px;width:160px;border-bottom:1px solid #334155">Username<i class="sort-icon">↕</i></th>
-              <th                        style="padding:7px 10px;width:170px;border-bottom:1px solid #334155">Password</th>
-              <th data-sort="host"      style="padding:7px 10px;width:150px;border-bottom:1px solid #334155">Host / Domain<i class="sort-icon">↕</i></th>
-              <th                        style="padding:7px 10px;width:210px;border-bottom:1px solid #334155">Hash</th>
-              <th                        style="padding:7px 10px;width:110px;border-bottom:1px solid #334155">Target</th>
-              <th                        style="padding:7px 10px;width:130px;border-bottom:1px solid #334155">Tags</th>
-              <th                        style="padding:7px 10px;border-bottom:1px solid #334155">Notes</th>
-              <th data-sort="updated_at" style="padding:7px 10px;width:90px;border-bottom:1px solid #334155">Updated<i class="sort-icon">↕</i></th>
+              <th data-col="password"   style="padding:7px 10px;width:170px;border-bottom:1px solid #334155">Password</th>
+              <th data-sort="host" data-col="host" style="padding:7px 10px;width:150px;border-bottom:1px solid #334155">Host / Domain<i class="sort-icon">↕</i></th>
+              <th data-col="hash"       style="padding:7px 10px;width:210px;border-bottom:1px solid #334155">Hash</th>
+              <th data-col="target"     style="padding:7px 10px;width:110px;border-bottom:1px solid #334155">Target</th>
+              <th data-col="tags"       style="padding:7px 10px;width:130px;border-bottom:1px solid #334155">Tags</th>
+              <th data-col="notes"      style="padding:7px 10px;border-bottom:1px solid #334155">Notes</th>
+              <th data-sort="updated_at" data-col="updated" style="padding:7px 10px;width:90px;border-bottom:1px solid #334155">Updated<i class="sort-icon">↕</i></th>
               <th                        style="padding:4px 6px;width:30px;border-bottom:1px solid #334155"></th>
             </tr>
           </thead>
           <tbody id="entries-tbody">
-            <tr><td colspan="9" style="text-align:center;padding:40px;color:#475569">No entries yet — add one to get started.</td></tr>
+            <tr><td colspan="10" style="text-align:center;padding:40px;color:#475569">No entries yet — add one to get started.</td></tr>
           </tbody>
         </table>
       </div>
@@ -221,6 +234,37 @@
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
       <button class="btn btn-ghost" id="cancel-entry-btn">Cancel</button>
       <button class="btn btn-primary" id="save-entry-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- BULK EDIT MODAL -->
+<div id="bulk-edit-modal" class="overlay" style="display:none">
+  <div class="modal" style="width:480px">
+    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:6px">Bulk Edit</h2>
+    <p id="bulk-edit-count" style="color:#64748b;font-size:0.78rem;margin-bottom:14px"></p>
+
+    <div id="bulk-edit-fields" style="display:flex;flex-direction:column;gap:10px"></div>
+
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1e293b">
+      <div class="detail-section-label">Tags</div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label>Add tags <span style="color:#475569;font-weight:400">(comma separated)</span></label>
+          <input type="text" id="bulk-tags-add" placeholder="kerberoastable">
+        </div>
+        <div class="form-field">
+          <label>Remove tags <span style="color:#475569;font-weight:400">(comma separated)</span></label>
+          <input type="text" id="bulk-tags-remove" placeholder="stale">
+        </div>
+      </div>
+    </div>
+
+    <p style="color:#64748b;font-size:0.72rem;margin-top:12px">Only fields with the checkbox enabled are changed. Entries that would end up with no username, password, or hash are skipped and reported.</p>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn btn-ghost" id="cancel-bulk-edit-btn">Cancel</button>
+      <button class="btn btn-primary" id="do-bulk-edit-btn">Apply</button>
     </div>
   </div>
 </div>
