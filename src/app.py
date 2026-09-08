@@ -368,6 +368,107 @@ def _clean(v):
     return v or None
 
 
+def _timestamp_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _insert_entry(conn, target_id, values, tags):
+    cur = conn.execute(
+        """INSERT INTO entries (target_id, username, password, host, domain, service,
+                                 hash_type, hash, notes, tags)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (target_id, values.get("username"), values.get("password"), values.get("host"),
+         values.get("domain"), values.get("service"), values.get("hash_type"), values.get("hash"),
+         values.get("notes"), json.dumps(tags) if tags else None),
+    )
+    return cur.lastrowid
+
+
+def _merge_or_create_entry(conn, target_id, values, tags):
+    """Create a new entry, or merge into an existing one with the same username
+    in the same target — shared by the single "Add Entry" form, PATCH updates
+    that change the username, and bulk import, so all three behave identically:
+
+      - no existing username match (in this target)              -> insert
+      - existing already has a value in a field we're setting     -> insert   (a second, distinct finding)
+      - existing has the *other* credential field set, not this   -> annotate (flag #check + note, don't overwrite)
+      - existing has neither password nor hash                    -> update in place, filling in what's given
+
+    Returns (action, entry_id) where action is 'inserted', 'updated', or 'annotated'.
+    """
+    username = values.get("username")
+    existing = None
+    if username:
+        existing = conn.execute(
+            "SELECT * FROM entries WHERE username = ? AND target_id IS ?",
+            (username, target_id),
+        ).fetchone()
+
+    if not existing:
+        return ("inserted", _insert_entry(conn, target_id, values, tags))
+
+    pw_conflict = bool(values.get("password")) and bool((existing["password"] or "").strip())
+    hash_conflict = bool(values.get("hash")) and bool((existing["hash"] or "").strip())
+    if pw_conflict or hash_conflict:
+        return ("inserted", _insert_entry(conn, target_id, values, tags))
+
+    pw_flag = bool(values.get("password")) and bool((existing["hash"] or "").strip())
+    hash_flag = bool(values.get("hash")) and bool((existing["password"] or "").strip())
+
+    if pw_flag or hash_flag:
+        note_bits = []
+        if pw_flag:
+            note_bits.append(f"Possible password: {values['password']}")
+        if hash_flag:
+            note_bits.append(f"Possible hash: {values['hash']}")
+        if values.get("notes"):
+            note_bits.append(values["notes"])
+        note_line = f"[{_timestamp_now()}] " + "; ".join(note_bits)
+        prev_notes = existing["notes"]
+        new_notes = f"{prev_notes}\n{note_line}" if prev_notes else note_line
+
+        set_parts, params = ["notes=?"], [new_notes]
+        for f in ("host", "domain", "service"):
+            if values.get(f):
+                set_parts.append(f"{f}=?")
+                params.append(values[f])
+
+        cur_tags = json.loads(existing["tags"] or "[]")
+        for t in (["check"] + tags):
+            if t not in cur_tags:
+                cur_tags.append(t)
+        set_parts.append("tags=?")
+        params.append(json.dumps(cur_tags) if cur_tags else None)
+
+        set_parts.append("updated_at=datetime('now')")
+        conn.execute(f"UPDATE entries SET {', '.join(set_parts)} WHERE id=?", params + [existing["id"]])
+        return ("annotated", existing["id"])
+
+    # Existing has neither password nor hash -> fill in whatever was provided.
+    set_parts, params = [], []
+    for f in ("password", "host", "domain", "service", "hash_type", "hash"):
+        if values.get(f):
+            set_parts.append(f"{f}=?")
+            params.append(values[f])
+    if values.get("notes"):
+        prev_notes = existing["notes"]
+        new_notes = f"{prev_notes}\n{values['notes']}" if prev_notes else values["notes"]
+        set_parts.append("notes=?")
+        params.append(new_notes)
+    if tags:
+        cur_tags = json.loads(existing["tags"] or "[]")
+        merged = list(dict.fromkeys(cur_tags + tags))
+        set_parts.append("tags=?")
+        params.append(json.dumps(merged) if merged else None)
+
+    if not set_parts:
+        return ("updated", existing["id"])
+
+    set_parts.append("updated_at=datetime('now')")
+    conn.execute(f"UPDATE entries SET {', '.join(set_parts)} WHERE id=?", params + [existing["id"]])
+    return ("updated", existing["id"])
+
+
 @app.route("/api/entries", methods=["POST"])
 def api_create_entry():
     body = request.get_json(silent=True) or {}
@@ -387,17 +488,12 @@ def api_create_entry():
     with get_db() as conn:
         if target_id and not conn.execute("SELECT 1 FROM targets WHERE id=?", (target_id,)).fetchone():
             return jsonify(error="Unknown target_id"), 400
-        cur = conn.execute(
-            """INSERT INTO entries (target_id, username, password, host, domain, service,
-                                     hash_type, hash, notes, tags)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (target_id, values["username"], values["password"], values["host"],
-             values["domain"], values["service"], values["hash_type"], values["hash"],
-             values["notes"], json.dumps(tags) if tags else None),
-        )
-        eid = cur.lastrowid
+        action, eid = _merge_or_create_entry(conn, target_id, values, tags)
 
-    return jsonify(api_get_entry(eid).get_json()), 201
+    resp = api_get_entry(eid).get_json()
+    resp["_merge_action"] = action
+    status = 201 if action == "inserted" else 200
+    return jsonify(resp), status
 
 
 @app.route("/api/entries/<int:eid>")
@@ -710,6 +806,13 @@ def _parse_bulk_csv(text):
     return rows, skipped, errors
 
 
+# user_pass / user_hash / secretsdump rows contribute a single credential value
+# per username, so they go through the same conflict-aware merge as the "Add
+# Entry" form. CSV rows can carry an arbitrary mix of fields, so they're
+# always inserted as new entries rather than guessed at.
+_MERGE_ELIGIBLE_FORMATS = {"user_pass", "user_hash", "secretsdump"}
+
+
 @app.route("/api/entries/bulk_import", methods=["POST"])
 def api_bulk_import():
     body = request.get_json(silent=True) or {}
@@ -737,7 +840,9 @@ def api_bulk_import():
         else:
             return jsonify(error="Unknown format"), 400
 
-        created = 0
+        merge_eligible = fmt in _MERGE_ELIGIBLE_FORMATS
+
+        created = updated = annotated = 0
         for entry in rows:
             row_target_id = target_id
             if entry.get("target") and not target_id:
@@ -747,19 +852,29 @@ def api_bulk_import():
                 if trow:
                     row_target_id = trow["id"]
 
-            tags = list(dict.fromkeys((entry.get("tags") or []) + common_tags))
+            values = {f: _clean(entry.get(f)) for f in EDITABLE_FIELDS}
+            row_tags = list(dict.fromkeys((entry.get("tags") or []) + common_tags))
 
-            conn.execute(
-                """INSERT INTO entries (target_id, username, password, host, domain, service,
-                                         hash_type, hash, notes, tags)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (row_target_id, entry.get("username"), entry.get("password"), entry.get("host"),
-                 entry.get("domain"), entry.get("service"), entry.get("hash_type"), entry.get("hash"),
-                 entry.get("notes"), json.dumps(tags) if tags else None),
-            )
-            created += 1
+            if merge_eligible:
+                action, _eid = _merge_or_create_entry(conn, row_target_id, values, row_tags)
+            else:
+                _insert_entry(conn, row_target_id, values, row_tags)
+                action = "inserted"
 
-    return jsonify({"created": created, "skipped": skipped, "errors": errors[:50]})
+            if action == "inserted":
+                created += 1
+            elif action == "updated":
+                updated += 1
+            elif action == "annotated":
+                annotated += 1
+
+    return jsonify({
+        "created": created,
+        "updated": updated,
+        "annotated": annotated,
+        "skipped": skipped,
+        "errors": errors[:50],
+    })
 
 
 # ── Markdown export ──────────────────────────────────────────────────────────

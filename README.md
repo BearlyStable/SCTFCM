@@ -141,6 +141,20 @@ Plain text searches every field. Multiple tokens combine with **AND**. Prefix an
 
 A common set of tags and/or a target can be applied to every row of an import.
 
+### What happens when the username already exists
+
+For the `user:pass`, `user:hash`, and `secretsdump` formats, each imported line is checked against existing entries with the **same username in the same target** (unassigned counts as matching unassigned) before deciding what to do:
+
+| Existing entry's state | Result |
+|---|---|
+| Already has a value in the field you're importing (e.g. it already has a password, and you're importing a password) | A **new, separate entry** is created — treated as a second, distinct finding rather than overwriting a possibly-still-valid credential. |
+| Has the *other* credential field set, but not this one (e.g. it has a hash, you're importing a password) | The existing entry is **left as-is**, but gets tagged `#check` and the new value is appended to its Notes (e.g. `Possible password: ...`) — flagged for you to verify and merge by hand, since it's an assumption rather than a certainty. |
+| Has neither a password nor a hash yet | The existing entry is **updated in place** with the new value — this is the "I found the password for a known user" case. |
+
+`CSV` import always creates new entries and never merges, since a CSV row can carry an arbitrary mix of fields.
+
+If duplicate usernames already exist within the same target (which can happen via the "always creates a new entry" case above), a later import matching that username will match one of them somewhat arbitrarily — worth cleaning up duplicates via Bulk Edit/Delete before relying on the merge behavior.
+
 ---
 
 ## License

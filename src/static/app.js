@@ -841,13 +841,19 @@ qs('#save-entry-btn').addEventListener('click', async () => {
     tags,
   };
   try {
-    await api('/api/entries', {
+    const result = await api('/api/entries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     qs('#entry-modal').style.display = 'none';
-    showToast('Entry added');
+    const messages = {
+      inserted: 'Entry added',
+      updated: 'Matching entry already existed — updated it in place instead of creating a duplicate',
+      annotated: 'Matching entry already had a different credential type set — flagged it #check and added your value to its notes instead of overwriting',
+    };
+    showToast(messages[result._merge_action] || 'Entry added');
+    if (result._merge_action !== 'inserted') showDetail(result.id);
     await Promise.all([loadEntries(), loadStats(), loadTargets()]);
   } catch (err) {
     showToast('Failed: ' + err.message, 'err');
@@ -1013,8 +1019,11 @@ qs('#do-import-btn').addEventListener('click', async () => {
         text,
       }),
     });
-    let msg = `Imported ${result.created} entr${result.created === 1 ? 'y' : 'ies'}`;
-    if (result.skipped) msg += `, skipped ${result.skipped}`;
+    const parts = [`created ${result.created}`];
+    if (result.updated)   parts.push(`updated ${result.updated}`);
+    if (result.annotated) parts.push(`flagged ${result.annotated} for review (tagged #check)`);
+    if (result.skipped)   parts.push(`skipped ${result.skipped}`);
+    const msg = parts.join(', ');
     status.textContent = msg + (result.errors.length ? ':\n' + result.errors.join('\n') : '');
     status.style.whiteSpace = 'pre-wrap';
     showToast(msg);
