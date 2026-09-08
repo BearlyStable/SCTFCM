@@ -1,0 +1,8 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+src/instance/
+.git/
+example_projects/

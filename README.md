@@ -28,6 +28,7 @@ Design and interaction patterns (dark theme, sidebar filters, `key:value` search
 
 - Python 3.10+
 - `make` (optional, but simplest — used below; works as-is under WSL / Linux / macOS)
+- Docker + Docker Compose (optional — only needed for the [Docker](#docker) workflow below)
 
 ## Installation & running
 
@@ -60,12 +61,69 @@ Run `make clean` to remove the virtual environment, database, and Python caches.
 
 ---
 
+## Docker
+
+The app has no runtime dependency on the internet — no CDN scripts, no external fonts, nothing fetched at request time — so a built image runs entirely offline. This is meant specifically for that: build the image once on a machine with internet access, export it as a single portable file, and load it on an offline CTF machine.
+
+### Build and export a portable image
+
+```bash
+make release
+# or with a custom version tag
+make release VERSION=1.0.0
+```
+
+This builds the `ccm:latest` image and exports it as a compressed `ccm-latest.tar.gz` in the repo root. Copy that one file across the air gap (USB stick, etc.) — it's the only thing that needs to move.
+
+### Load and run on the offline machine
+
+Requires Docker itself to already be installed there (install it, like the image, while you still have internet).
+
+```bash
+docker load -i ccm-latest.tar.gz
+docker compose -f docker/docker-compose.yml up -d
+```
+
+or without Compose:
+
+```bash
+docker run -d \
+  -p 5050:5050 \
+  -v ccm-instance:/app/instance \
+  --name ccm \
+  ccm:latest
+```
+
+The app is then available at **http://localhost:5050**. The named volume (`ccm-instance`) keeps the SQLite database on disk across container restarts and image upgrades, starting empty the first time.
+
+To stop it:
+
+```bash
+docker compose -f docker/docker-compose.yml down      # keeps data
+docker compose -f docker/docker-compose.yml down -v    # also wipes the volume
+```
+
+### Backing up / moving data between machines
+
+The in-app **Download Backup** button (Export dialog) downloads the SQLite database as a single file — same mechanism whether running natively or in Docker. To restore one into a Docker volume:
+
+```bash
+docker run --rm -v ccm-instance:/data -v "$(pwd):/backup" alpine \
+  cp /backup/ccm-backup-2026-01-01.db /data/ccm.db
+```
+
+---
+
 ## Project structure
 
 ```
 CCM/
 ├── Makefile
 ├── requirements.txt
+├── .dockerignore
+├── docker/
+│   ├── Dockerfile          # Production image (gunicorn, python:3.11-slim)
+│   └── docker-compose.yml  # Compose file with a named volume for persistence
 ├── src/
 │   ├── app.py            # Flask application — SQLite logic, search parser, REST API
 │   ├── templates/
