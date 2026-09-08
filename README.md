@@ -11,7 +11,7 @@ Design and interaction patterns (dark theme, sidebar filters, `key:value` search
 - **SQLite storage** — everything persists locally in `src/instance/ccm.db`
 - **Targets** — group entries by box / domain / engagement, with a sidebar facet list and counts; entries can also be left unassigned
 - **Entries** with: username, password, hash type, hash, host/IP, domain, service/port, notes, tags — every field is optional except that an entry needs at least one of username, password, or hash
-- **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
+- **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `userpass:yes`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
 - **Password / hash reuse detection** — entries that share a password or hash with another entry (even across targets) are flagged in the table and cross-linked in the detail panel, so finding "where else does this password work" is one click
 - **Editable in place** — click any row to open the detail panel and edit every field (including moving an entry to a different target), edit notes, and manage tags; changes save immediately
 - **Bulk edit / bulk delete** — tick entries via the row checkboxes (or "select all" on the page) to edit a shared field (target, host, domain, service, hash type) or add/remove tags across all of them at once, or delete them in one go. Only fields you explicitly enable are changed; an entry that would end up with no username, password, or hash is skipped and reported rather than silently emptied.
@@ -105,6 +105,7 @@ CCM/
 |-----------|------|-------------|
 | `target_id` | int or `none` | Restrict to one target, or to unassigned entries |
 | `search` | string | Search string — plain text or `key:value` operators (see below) |
+| `userpass_only` | `1` | Only entries that have both a username and a password |
 | `notes_only` | `1` | Only entries that have a note |
 | `reused_only` | `1` | Only entries whose password or hash is reused elsewhere |
 | `sort_by` | string | `username`, `host`, `domain`, `service`, `hash_type`, `created_at`, `updated_at` |
@@ -124,6 +125,7 @@ Plain text searches every field. Multiple tokens combine with **AND**. Prefix an
 | `service:` | Service / port | `service:smb` |
 | `hashtype:` | Hash type | `hashtype:ntlm` |
 | `hash:` | Hash value | `hash:8846f7ea*` |
+| `userpass:yes/no` | Has both a username and a password | `userpass:yes` |
 | `notes:yes/no` | Has a note | `notes:yes` |
 | `tag:value` | Tagged with value | `tag:domain-admin` |
 | `target:value` | Target name (independent of the sidebar selection) | `target:DC01` |

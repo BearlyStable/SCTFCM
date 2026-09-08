@@ -80,6 +80,10 @@ _HASH_REUSE_EXPR = (
     "THEN (SELECT COUNT(*) FROM entries e2 WHERE e2.hash = entries.hash) "
     "ELSE 0 END"
 )
+_HAS_USERPASS_EXPR = (
+    "(username IS NOT NULL AND TRIM(username) != '' "
+    "AND password IS NOT NULL AND TRIM(password) != '')"
+)
 
 
 # ── Search query parser ───────────────────────────────────────────────────────
@@ -154,6 +158,10 @@ def parse_search_query(search_str: str):
             cond = f"({_HASH_REUSE_EXPR}) > 1"
             conditions.append(cond if (yes ^ negate) else f"NOT {cond}")
 
+        elif op == 'userpass':
+            yes = _YESNO(value)
+            conditions.append(_HAS_USERPASS_EXPR if (yes ^ negate) else f"NOT {_HAS_USERPASS_EXPR}")
+
         else:
             plain_terms.append(token)
 
@@ -190,6 +198,7 @@ def build_entry_filter(p):
     search = p.get("search", "").strip()
     notes_only = p.get("notes_only", "").lower() in ("1", "true")
     reused_only = p.get("reused_only", "").lower() in ("1", "true")
+    userpass_only = p.get("userpass_only", "").lower() in ("1", "true")
 
     where, params = ["1=1"], []
 
@@ -212,6 +221,9 @@ def build_entry_filter(p):
 
     if reused_only:
         where.append(f"(({_PW_REUSE_EXPR}) > 1 OR ({_HASH_REUSE_EXPR}) > 1)")
+
+    if userpass_only:
+        where.append(_HAS_USERPASS_EXPR)
 
     sort_by = p.get("sort_by", "").strip()
     sort_dir = p.get("sort_dir", "desc").lower()
@@ -955,6 +967,9 @@ def api_export_entries():
 def api_stats():
     with get_db() as conn:
         total = conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+        users = conn.execute(
+            "SELECT COUNT(DISTINCT username) FROM entries WHERE username IS NOT NULL AND TRIM(username) != ''"
+        ).fetchone()[0]
         with_password = conn.execute(
             "SELECT COUNT(*) FROM entries WHERE password IS NOT NULL AND TRIM(password) != ''"
         ).fetchone()[0]
@@ -968,6 +983,7 @@ def api_stats():
 
     return jsonify({
         "total": total,
+        "users": users,
         "with_password": with_password,
         "with_hash": with_hash,
         "reused": reused,

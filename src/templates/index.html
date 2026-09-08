@@ -49,6 +49,7 @@
                 <tr><td>service:</td><td>service / port</td></tr>
                 <tr><td>hashtype:</td><td>hash type</td></tr>
                 <tr><td>hash:</td><td>hash value</td></tr>
+                <tr><td>userpass:</td><td><code>yes</code> / <code>no</code> — has both a username and a password</td></tr>
                 <tr><td>notes:</td><td><code>yes</code> / <code>no</code> — has a note</td></tr>
                 <tr><td>tag:</td><td>tagged with value — supports <code>*</code></td></tr>
                 <tr><td>target:</td><td>target name — supports <code>*</code></td></tr>
@@ -76,6 +77,9 @@
       <div class="filter-section" style="border:none">
         <div class="filter-label">Flags</div>
         <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.8rem;color:#94a3b8">
+          <input type="checkbox" id="userpass-only" style="width:auto;accent-color:#5eead4"> Has username + password
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.8rem;color:#94a3b8;margin-top:6px">
           <input type="checkbox" id="notes-only" style="width:auto;accent-color:#3b82f6"> Has notes only
         </label>
         <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.8rem;color:#94a3b8;margin-top:6px">
@@ -99,6 +103,10 @@
         <div class="stat-card" style="padding:4px 12px">
           <span style="color:#64748b;font-size:0.68rem">TOTAL</span>
           <span id="stat-total" style="font-weight:700;color:#e2e8f0;margin-left:6px">—</span>
+        </div>
+        <div class="stat-card" style="padding:4px 12px">
+          <span style="color:#5eead4;font-size:0.68rem">USERS</span>
+          <span id="stat-users" style="font-weight:700;color:#5eead4;margin-left:6px">—</span>
         </div>
         <div class="stat-card" style="padding:4px 12px">
           <span style="color:#93c5fd;font-size:0.68rem">W/ PASSWORD</span>

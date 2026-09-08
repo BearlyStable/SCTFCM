@@ -77,6 +77,7 @@ const state = {
   targets: [],
   selectedTargetId: null,   // null = all targets, 'none' = unassigned, or a numeric id
   search: '',
+  userpassOnly: false,
   notesOnly: false,
   reusedOnly: false,
   page: 1,
@@ -224,6 +225,7 @@ function populateTargetSelect(sel, keepValue) {
 async function loadStats() {
   const s = await api('/api/stats');
   qs('#stat-total').textContent    = s.total;
+  qs('#stat-users').textContent    = s.users;
   qs('#stat-password').textContent = s.with_password;
   qs('#stat-hash').textContent     = s.with_hash;
   qs('#stat-reused').textContent   = s.reused;
@@ -237,9 +239,10 @@ async function loadStats() {
 function buildQueryParams() {
   const p = new URLSearchParams();
   if (state.selectedTargetId !== null) p.set('target_id', state.selectedTargetId);
-  if (state.search)      p.set('search', state.search);
-  if (state.notesOnly)   p.set('notes_only', '1');
-  if (state.reusedOnly)  p.set('reused_only', '1');
+  if (state.search)       p.set('search', state.search);
+  if (state.userpassOnly) p.set('userpass_only', '1');
+  if (state.notesOnly)    p.set('notes_only', '1');
+  if (state.reusedOnly)   p.set('reused_only', '1');
   if (state.sortBy) {
     p.set('sort_by', state.sortBy);
     p.set('sort_dir', state.sortDir);
@@ -768,6 +771,12 @@ qs('#search-input').addEventListener('input', e => {
   }, 300);
 });
 
+qs('#userpass-only').addEventListener('change', e => {
+  state.userpassOnly = e.target.checked;
+  state.page = 1;
+  loadEntries();
+});
+
 qs('#notes-only').addEventListener('change', e => {
   state.notesOnly = e.target.checked;
   state.page = 1;
@@ -788,6 +797,7 @@ qs('#per-page-select').addEventListener('change', e => {
 
 qs('#clear-filters-btn').addEventListener('click', () => {
   state.search = '';      qs('#search-input').value = '';
+  state.userpassOnly = false; qs('#userpass-only').checked = false;
   state.notesOnly = false; qs('#notes-only').checked = false;
   state.reusedOnly = false; qs('#reused-only').checked = false;
   state.selectedTargetId = null;
