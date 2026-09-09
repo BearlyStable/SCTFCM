@@ -5,6 +5,7 @@ import re
 import shlex
 import sqlite3
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -60,6 +61,7 @@ def init_db():
             service           TEXT,
             hash_type         TEXT,
             hash              TEXT,
+            hashcat_mode      INTEGER,
             notes             TEXT,
             tags              TEXT,
             created_at        TEXT DEFAULT (datetime('now')),
@@ -75,6 +77,8 @@ def init_db():
         entry_cols = {row["name"] for row in conn.execute("PRAGMA table_info(entries)")}
         if "password_is_blank" not in entry_cols:
             conn.execute("ALTER TABLE entries ADD COLUMN password_is_blank INTEGER NOT NULL DEFAULT 0")
+        if "hashcat_mode" not in entry_cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN hashcat_mode INTEGER")
 
 
 init_db()
@@ -191,6 +195,21 @@ def parse_search_query(search_str: str):
             cond = "password_is_blank = 1"
             conditions.append(cond if (yes ^ negate) else f"NOT ({cond})")
 
+        elif op == 'hashcatmode':
+            v = value.lower()
+            if v in ('none', 'unset'):
+                conditions.append(f"{'NOT ' if negate else ''}(hashcat_mode IS NULL)")
+            elif v in ('any', 'set'):
+                conditions.append(f"{'NOT ' if negate else ''}(hashcat_mode IS NOT NULL)")
+            else:
+                try:
+                    mode_val = int(value)
+                except ValueError:
+                    plain_terms.append(token)
+                    continue
+                conditions.append(f"{'NOT ' if negate else ''}(hashcat_mode = ?)")
+                params.append(mode_val)
+
         else:
             plain_terms.append(token)
 
@@ -270,7 +289,7 @@ _LIST_COLUMNS = f"""
     entries.id, entries.target_id, targets.name AS target_name,
     entries.username, entries.password, entries.password_is_blank,
     entries.host, entries.domain, entries.service,
-    entries.hash_type, entries.hash, entries.notes, entries.tags,
+    entries.hash_type, entries.hash, entries.hashcat_mode, entries.notes, entries.tags,
     entries.created_at, entries.updated_at,
     ({_PW_REUSE_EXPR}) AS password_reuse_count,
     ({_HASH_REUSE_EXPR}) AS hash_reuse_count
@@ -426,6 +445,18 @@ def _apply_password_lock(body, values):
         values["password_is_blank"] = False
 
 
+def _parse_hashcat_mode(raw):
+    """Returns (ok, value). value is an int, or None meaning "clear it" —
+    hashcat mode 0 (raw MD5) is a real mode, so this must not be conflated
+    with "not provided" the way a merely-falsy value would be."""
+    if raw is None or raw == "":
+        return True, None
+    try:
+        return True, int(str(raw).strip())
+    except (TypeError, ValueError):
+        return False, None
+
+
 def _values_has_password(values):
     return bool(values.get("password_is_blank")) or bool((values.get("password") or "").strip())
 
@@ -437,12 +468,12 @@ def _row_has_password(row):
 def _insert_entry(conn, target_id, values, tags):
     cur = conn.execute(
         """INSERT INTO entries (target_id, username, password, password_is_blank, host, domain,
-                                 service, hash_type, hash, notes, tags)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                                 service, hash_type, hash, hashcat_mode, notes, tags)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (target_id, values.get("username"), values.get("password"),
          int(bool(values.get("password_is_blank"))), values.get("host"),
          values.get("domain"), values.get("service"), values.get("hash_type"), values.get("hash"),
-         values.get("notes"), json.dumps(tags) if tags else None),
+         values.get("hashcat_mode"), values.get("notes"), json.dumps(tags) if tags else None),
     )
     return cur.lastrowid
 
@@ -523,6 +554,9 @@ def _merge_or_create_entry(conn, target_id, values, tags):
         if values.get(f):
             set_parts.append(f"{f}=?")
             params.append(values[f])
+    if values.get("hashcat_mode") is not None:
+        set_parts.append("hashcat_mode=?")
+        params.append(values["hashcat_mode"])
     if values.get("notes"):
         prev_notes = existing["notes"]
         new_notes = f"{prev_notes}\n{values['notes']}" if prev_notes else values["notes"]
@@ -550,6 +584,11 @@ def api_create_entry():
     _apply_password_lock(body, values)
     if not (values["username"] or values["hash"] or _values_has_password(values)):
         return jsonify(error="Entry needs at least a username, password, or hash"), 400
+
+    ok, hashcat_mode = _parse_hashcat_mode(body.get("hashcat_mode"))
+    if not ok:
+        return jsonify(error="hashcat_mode must be a whole number"), 400
+    values["hashcat_mode"] = hashcat_mode
 
     target_id = body.get("target_id")
     target_id = int(target_id) if target_id else None
@@ -638,6 +677,14 @@ def api_update_entry(eid):
         if not (values["username"] or values["hash"] or _values_has_password(values)):
             return jsonify(error="Entry needs at least a username, password, or hash"), 400
 
+        if "hashcat_mode" in body:
+            ok, hashcat_mode = _parse_hashcat_mode(body.get("hashcat_mode"))
+            if not ok:
+                return jsonify(error="hashcat_mode must be a whole number"), 400
+            values["hashcat_mode"] = hashcat_mode
+        else:
+            values["hashcat_mode"] = row["hashcat_mode"]
+
         target_id = row["target_id"]
         if "target_id" in body:
             target_id = int(body["target_id"]) if body["target_id"] else None
@@ -646,11 +693,11 @@ def api_update_entry(eid):
 
         conn.execute(
             """UPDATE entries SET target_id=?, username=?, password=?, password_is_blank=?, host=?, domain=?,
-                                   service=?, hash_type=?, hash=?, notes=?, updated_at=datetime('now')
+                                   service=?, hash_type=?, hash=?, hashcat_mode=?, notes=?, updated_at=datetime('now')
                WHERE id=?""",
             (target_id, values["username"], values["password"], int(values["password_is_blank"]),
              values["host"], values["domain"], values["service"], values["hash_type"], values["hash"],
-             values["notes"], eid),
+             values["hashcat_mode"], values["notes"], eid),
         )
 
     return api_get_entry(eid)
@@ -714,12 +761,20 @@ def api_bulk_update_entries():
         raw = raw_fields.pop("target_id")
         target_id_val = int(raw) if raw else None
 
+    hashcat_mode_set = "hashcat_mode" in raw_fields
+    hashcat_mode_val = None
+    if hashcat_mode_set:
+        raw_hcm = raw_fields.pop("hashcat_mode")
+        ok, hashcat_mode_val = _parse_hashcat_mode(raw_hcm)
+        if not ok:
+            return jsonify(error="hashcat_mode must be a whole number"), 400
+
     clean_fields = {f: _clean(v) for f, v in raw_fields.items() if f in EDITABLE_FIELDS}
 
     tags_add = [t.strip().lstrip('#') for t in (body.get("tags_add") or []) if isinstance(t, str) and t.strip()]
     tags_remove = [t.strip().lstrip('#') for t in (body.get("tags_remove") or []) if isinstance(t, str) and t.strip()]
 
-    if not clean_fields and not target_id_set and not tags_add and not tags_remove:
+    if not clean_fields and not target_id_set and not hashcat_mode_set and not tags_add and not tags_remove:
         return jsonify(error="No changes specified"), 400
 
     with get_db() as conn:
@@ -743,12 +798,15 @@ def api_bulk_update_entries():
             else:
                 updated_ids.append(r["id"])
 
-        if updated_ids and (clean_fields or target_id_set):
+        if updated_ids and (clean_fields or target_id_set or hashcat_mode_set):
             set_parts = [f"{f}=?" for f in clean_fields]
             params = list(clean_fields.values())
             if target_id_set:
                 set_parts.append("target_id=?")
                 params.append(target_id_val)
+            if hashcat_mode_set:
+                set_parts.append("hashcat_mode=?")
+                params.append(hashcat_mode_val)
             set_parts.append("updated_at=datetime('now')")
             ph2 = ",".join("?" * len(updated_ids))
             conn.execute(
@@ -974,6 +1032,7 @@ EXPORT_FIELDS = {
     "service":     "Service",
     "hash_type":   "Hash Type",
     "hash":        "Hash",
+    "hashcat_mode": "Hashcat Mode",
     "tags":        "Tags",
     "notes":       "Notes",
     "created_at":  "Created",
@@ -1036,6 +1095,66 @@ def api_export_entries():
         "\n".join(lines) + "\n",
         mimetype="text/markdown",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ── Hashcat export ───────────────────────────────────────────────────────────
+# One line per entry, "username:hash" (username replaced with <no username>
+# when absent) — the shape hashcat's --username flag expects. Only entries
+# with both a hash and a Hashcat Mode set are included; entries are grouped
+# by mode since a hashcat hash-list must be single-mode. A single matching
+# mode downloads as one SCTFCM-hashcat.<mode> file; more than one mode
+# bundles them together as a zip.
+
+def _hashcat_line(row):
+    username = row["username"] or "<no username>"
+    return f"{username}:{row['hash']}"
+
+
+@app.route("/api/entries/export/hashcat")
+def api_export_hashcat():
+    p = request.args
+    sql_where, params, order_sql = build_entry_filter(p)
+
+    with get_db() as conn:
+        rows = conn.execute(
+            f"""SELECT entries.username, entries.hash, entries.hashcat_mode
+                FROM entries LEFT JOIN targets ON targets.id = entries.target_id
+                WHERE ({sql_where})
+                  AND entries.hash IS NOT NULL AND TRIM(entries.hash) != ''
+                  AND entries.hashcat_mode IS NOT NULL
+                ORDER BY {order_sql}""",
+            params,
+        ).fetchall()
+
+    if not rows:
+        return jsonify(error="No entries with both a hash and a Hashcat Mode set match the current filters"), 400
+
+    groups = {}
+    for row in rows:
+        groups.setdefault(row["hashcat_mode"], []).append(row)
+
+    if len(groups) == 1:
+        mode, group_rows = next(iter(groups.items()))
+        body = "\n".join(_hashcat_line(r) for r in group_rows) + "\n"
+        filename = f"SCTFCM-hashcat.{mode}"
+        return Response(
+            body,
+            mimetype="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for mode, group_rows in sorted(groups.items()):
+            body = "\n".join(_hashcat_line(r) for r in group_rows) + "\n"
+            zf.writestr(f"SCTFCM-hashcat.{mode}", body)
+
+    zip_filename = f"sctfcm-hashcat-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.zip"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_filename}"},
     )
 
 

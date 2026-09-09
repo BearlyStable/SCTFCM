@@ -51,6 +51,7 @@
                 <tr><td>hash:</td><td>hash value</td></tr>
                 <tr><td>userpass:</td><td><code>yes</code> / <code>no</code> — has both a username and a password</td></tr>
                 <tr><td>blankpass:</td><td><code>yes</code> / <code>no</code> — password locked as confirmed empty</td></tr>
+                <tr><td>hashcatmode:</td><td>a mode number, or <code>none</code> / <code>set</code></td></tr>
                 <tr><td>notes:</td><td><code>yes</code> / <code>no</code> — has a note</td></tr>
                 <tr><td>tag:</td><td>tagged with value — supports <code>*</code></td></tr>
                 <tr><td>target:</td><td>target name — supports <code>*</code></td></tr>
@@ -163,6 +164,7 @@
               <th data-col="password"   style="padding:7px 10px;width:170px;border-bottom:1px solid #334155">Password</th>
               <th data-sort="host" data-col="host" style="padding:7px 10px;width:150px;border-bottom:1px solid #334155">Host / Domain<i class="sort-icon">↕</i></th>
               <th data-col="hash"       style="padding:7px 10px;width:210px;border-bottom:1px solid #334155">Hash</th>
+              <th data-col="hashcat_mode" style="padding:7px 10px;width:90px;border-bottom:1px solid #334155">Hashcat</th>
               <th data-col="target"     style="padding:7px 10px;width:110px;border-bottom:1px solid #334155">Target</th>
               <th data-col="tags"       style="padding:7px 10px;width:130px;border-bottom:1px solid #334155">Tags</th>
               <th data-col="notes"      style="padding:7px 10px;border-bottom:1px solid #334155">Notes</th>
@@ -171,7 +173,7 @@
             </tr>
           </thead>
           <tbody id="entries-tbody">
-            <tr><td colspan="10" style="text-align:center;padding:40px;color:#475569">No entries yet — add one to get started.</td></tr>
+            <tr><td colspan="11" style="text-align:center;padding:40px;color:#475569">No entries yet — add one to get started.</td></tr>
           </tbody>
         </table>
       </div>
@@ -228,6 +230,10 @@
       <div class="form-field">
         <label>Hash Type</label>
         <input type="text" id="entry-hashtype" placeholder="NTLM, bcrypt, SHA256…">
+      </div>
+      <div class="form-field">
+        <label>Hashcat Mode <span style="color:#475569;font-weight:400">(number)</span></label>
+        <input type="text" inputmode="numeric" id="entry-hashcatmode" placeholder="e.g. 1000 for NTLM">
       </div>
       <div class="form-field" style="grid-column:1 / -1">
         <label>Hash</label>
@@ -352,6 +358,15 @@ jdoe:1104:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::">
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
       <button class="btn btn-ghost" id="cancel-export-btn">Cancel</button>
       <button class="btn btn-primary" id="do-export-btn">Export</button>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #1e293b;margin:18px 0 14px">
+    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:6px">Hashcat Export</h2>
+    <p style="color:#64748b;font-size:0.78rem;margin-bottom:14px">Exports entries matching the current filters that have both a hash and a Hashcat Mode set, as <code>username:hash</code> lines (<code>&lt;no username&gt;</code> when absent) — compatible with hashcat's <code>--username</code> flag. One <code>SCTFCM-hashcat.&lt;mode&gt;</code> file per mode present; bundled as a .zip when more than one mode matches.</p>
+    <div style="display:flex;justify-content:flex-end">
+      <button class="btn btn-ghost" id="do-hashcat-export-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;margin-right:5px;vertical-align:-2px"><path d="M21 9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10"/><polyline points="16 3 21 3 21 8"/><line x1="10" y1="14" x2="21" y2="3"/></svg>Export Hashcat List
+      </button>
     </div>
 
     <hr style="border:none;border-top:1px solid #1e293b;margin:18px 0 14px">
