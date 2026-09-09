@@ -133,11 +133,16 @@ const COLUMN_DEFS = [
   ['password', 'Password'],
   ['host',     'Host / Domain'],
   ['hash',     'Hash'],
+  ['hashcat_mode', 'Hashcat Mode', false],
   ['target',   'Target'],
   ['tags',     'Tags'],
   ['notes',    'Notes'],
   ['updated',  'Updated'],
 ];
+
+function defaultColumnVisibility() {
+  return Object.fromEntries(COLUMN_DEFS.map(([k, , def]) => [k, def !== false]));
+}
 
 function loadVisibleColumns() {
   try {
@@ -145,9 +150,9 @@ function loadVisibleColumns() {
     // pre-rename key, read once as a fallback so an existing viewer's column
     // choices survive the CCM -> SCTFCM rename.
     const raw = localStorage.getItem('sctfcm-visible-columns') || localStorage.getItem('ccm-visible-columns');
-    if (raw) return { ...Object.fromEntries(COLUMN_DEFS.map(([k]) => [k, true])), ...JSON.parse(raw) };
+    if (raw) return { ...defaultColumnVisibility(), ...JSON.parse(raw) };
   } catch {}
-  return Object.fromEntries(COLUMN_DEFS.map(([k]) => [k, true]));
+  return defaultColumnVisibility();
 }
 
 const visibleColumns = loadVisibleColumns();
@@ -320,7 +325,7 @@ function updateSortHeaders() {
 
 async function loadEntries() {
   const tbody = qs('#entries-tbody');
-  tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#475569">Loading…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:24px;color:#475569">Loading…</td></tr>`;
 
   const data = await api('/api/entries?' + buildQueryParams());
   state.total = data.total;
@@ -354,7 +359,7 @@ function renderEntries(entries) {
   state.currentPageIds = entries.map(en => en.id);
 
   if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#475569">No entries match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:#475569">No entries match the current filters.</td></tr>`;
     updateBulkBar();
     applyColumnVisibility();
     return;
@@ -377,12 +382,17 @@ function renderEntries(entries) {
       ? `${en.hash_type ? `<span class="badge badge-hashtype">${esc(en.hash_type)}</span> ` : ''}${credCellHtml(en.hash)}`
       : (en.hash_type ? `<span class="badge badge-hashtype">${esc(en.hash_type)}</span>` : '<span class="cred-empty">—</span>');
 
+    const hashcatCell = (en.hashcat_mode !== null && en.hashcat_mode !== undefined)
+      ? `<span class="badge badge-hashtype" title="Hashcat mode ${en.hashcat_mode}">${en.hashcat_mode}</span>`
+      : '<span class="cred-empty">—</span>';
+
     return `<tr class="row-hover${reusedRow}" data-id="${en.id}" style="border-bottom:1px solid #1e293b;${bg}">
       <td style="padding:7px 6px;text-align:center"><input type="checkbox" class="row-select-cb" data-id="${en.id}" style="width:auto;accent-color:#3b82f6" ${checked}></td>
       <td style="padding:7px 10px;font-weight:600;color:#e2e8f0">${en.username ? esc(en.username) : '<span class="cred-empty">—</span>'}</td>
       <td data-col="password" style="padding:7px 10px">${passwordCellHtml(en)} ${reuseBadge(en.password_reuse_count, 'Password')}</td>
       <td data-col="host" style="padding:7px 10px">${hostCell}</td>
       <td data-col="hash" style="padding:7px 10px">${hashCell} ${reuseBadge(en.hash_reuse_count, 'Hash')}</td>
+      <td data-col="hashcat_mode" style="padding:7px 10px">${hashcatCell}</td>
       <td data-col="target" style="padding:7px 10px">${targetCell}</td>
       <td data-col="tags" style="padding:7px 10px">${tagsPreview(en.tags)}</td>
       <td data-col="notes" style="padding:7px 10px">${textPreview(en.notes)}</td>
@@ -522,6 +532,7 @@ const BULK_EDIT_FIELDS = [
   ['domain',    'Domain', 'text'],
   ['service',   'Service / Port', 'text'],
   ['hash_type', 'Hash Type', 'text'],
+  ['hashcat_mode', 'Hashcat Mode', 'text'],
 ];
 
 function renderBulkEditFields() {
@@ -662,6 +673,10 @@ function renderDetail(entry) {
         <label>Hash Type</label>
         <input type="text" id="d-hashtype" value="${esc(entry.hash_type || '')}">
       </div>
+      <div class="form-field">
+        <label>Hashcat Mode <span style="color:#475569;font-weight:400">(number)</span></label>
+        <input type="text" inputmode="numeric" id="d-hashcatmode" value="${entry.hashcat_mode === null || entry.hashcat_mode === undefined ? '' : entry.hashcat_mode}">
+      </div>
       <div class="form-field" style="grid-column:1 / -1">
         <label>Hash</label>
         <input type="text" id="d-hash" value="${esc(entry.hash || '')}">
@@ -736,6 +751,7 @@ function renderDetail(entry) {
           domain:    qs('#d-domain').value,
           service:   qs('#d-service').value,
           hash_type: qs('#d-hashtype').value,
+          hashcat_mode: qs('#d-hashcatmode').value,
           hash:      qs('#d-hash').value,
           notes:     qs('#d-notes').value,
         }),
@@ -870,6 +886,7 @@ function openEntryModal() {
   qs('#entry-domain').value = '';
   qs('#entry-service').value = '';
   qs('#entry-hashtype').value = '';
+  qs('#entry-hashcatmode').value = '';
   qs('#entry-hash').value = '';
   qs('#entry-tags').value = '';
   qs('#entry-notes').value = '';
@@ -894,6 +911,7 @@ qs('#save-entry-btn').addEventListener('click', async () => {
     domain:    qs('#entry-domain').value,
     service:   qs('#entry-service').value,
     hash_type: qs('#entry-hashtype').value,
+    hashcat_mode: qs('#entry-hashcatmode').value,
     hash:      qs('#entry-hash').value,
     notes:     qs('#entry-notes').value,
     tags,
@@ -1105,6 +1123,7 @@ const EXPORT_FIELDS = [
   ['password',    'Password',   true],
   ['hash_type',   'Hash Type',  true],
   ['hash',        'Hash',       true],
+  ['hashcat_mode', 'Hashcat Mode', false],
   ['host',        'Host',       false],
   ['domain',      'Domain',     false],
   ['service',     'Service',    false],
@@ -1130,6 +1149,13 @@ qs('#export-modal').addEventListener('click', e => {
 
 qs('#do-backup-btn').addEventListener('click', () => {
   window.location.href = '/api/backup';
+});
+
+qs('#do-hashcat-export-btn').addEventListener('click', () => {
+  const params = buildQueryParams();
+  params.delete('page');
+  params.delete('per_page');
+  window.location.href = '/api/entries/export/hashcat?' + params.toString();
 });
 
 qs('#do-export-btn').addEventListener('click', () => {

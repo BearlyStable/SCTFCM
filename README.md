@@ -11,14 +11,15 @@ Design and interaction patterns (dark theme, sidebar filters, `key:value` search
 - **SQLite storage** — everything persists locally in `src/instance/sctfcm.db`
 - **Targets** — group entries by box / domain / engagement, with a sidebar facet list and counts; entries can also be left unassigned
 - **Entries** with: username, password, hash type, hash, host/IP, domain, service/port, notes, tags — every field is optional except that an entry needs at least one of username, password, or hash
-- **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `userpass:yes`, `blankpass:yes`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
+- **Search** — a search bar with partial/substring matching across every field, plus structured operators (`user:`, `pass:`, `host:`, `domain:`, `service:`, `hashtype:`, `hash:`, `tag:`, `userpass:yes`, `blankpass:yes`, `hashcatmode:`, `notes:yes`, `target:`, `reused:yes`, `reusedhash:yes`). Search always covers **every target** unless you select one in the sidebar or use the `target:` operator.
 - **Password / hash reuse detection** — entries that share a password or hash with another entry (even across targets) are flagged in the table and cross-linked in the detail panel, so finding "where else does this password work" is one click. A confirmed-empty password (see below) counts too — several accounts sharing a blank password is exactly the kind of thing worth flagging.
 - **Confirmed-empty passwords** — the password field has a lock toggle (🔓/🔒) next to it, in both the Add Entry form and the detail panel. Locking it records "this account's password is confirmed blank" as a real, distinct fact rather than leaving the field empty/unknown — it shows as a `🔒 empty` badge in the table (never masked dots, since there's nothing hidden), counts as "has a password" everywhere (stats, `userpass:` filter, export), and is protected: a later add/import that finds an actual password for that username creates a new entry instead of silently overwriting the confirmed-blank finding.
 - **Editable in place** — click any row to open the detail panel and edit every field (including moving an entry to a different target), edit notes, and manage tags; changes save immediately
-- **Bulk edit / bulk delete** — tick entries via the row checkboxes (or "select all" on the page) to edit a shared field (target, host, domain, service, hash type) or add/remove tags across all of them at once, or delete them in one go. Only fields you explicitly enable are changed; an entry that would end up with no username, password, or hash is skipped and reported rather than silently emptied.
+- **Bulk edit / bulk delete** — tick entries via the row checkboxes (or "select all" on the page) to edit a shared field (target, host, domain, service, hash type, Hashcat Mode) or add/remove tags across all of them at once, or delete them in one go. Only fields you explicitly enable are changed; an entry that would end up with no username, password, or hash is skipped and reported rather than silently emptied.
 - **Bulk import** — paste or drop a file to create many entries at once, in one of four formats: `user:pass`, `user:hash`, secretsdump-style (`user:rid:lm:nt:::`, auto-detected as NTLM), or CSV with a header row
-- **Toggleable columns** — Password, Host/Domain, Hash, Target, Tags, Notes, and Updated can each be hidden via the "Columns" control when you don't need them visible; the choice is remembered in the browser
+- **Toggleable columns** — Password, Host/Domain, Hash, Hashcat Mode, Target, Tags, Notes, and Updated can each be hidden or shown via the "Columns" control (Hashcat Mode starts hidden); the choice is remembered in the browser
 - **Markdown export** — export the entries matching the current filters (not just the current page) as a Markdown table, choosing which columns to include
+- **Hashcat export** — a dedicated numeric "Hashcat Mode" field per entry (separate from the free-text Hash Type, precisely because a typo'd or unmapped hash-type name would otherwise silently break the export). Entries with both a hash and a Hashcat Mode set export as `username:hash` lines (`<no username>` when absent) — the format hashcat's `--username` flag expects — filtered the same way as the Markdown export, grouped by mode into one `SCTFCM-hashcat.<mode>` file per mode present, bundled as a `.zip` when more than one mode matches at once.
 - **Database backup** — download the full SQLite database from the Export dialog
 - **Masked credentials** — passwords and hashes are masked in the table by default with a click-to-reveal toggle and a copy button, to avoid shoulder-surfing on a shared screen
 
@@ -155,6 +156,7 @@ SCTFCM/
 | `DELETE` | `/api/entries/bulk` | Delete a set of entries (`{"ids": [...]}`) |
 | `POST` | `/api/entries/bulk_import` | Create many entries from pasted text (see formats below) |
 | `GET` | `/api/entries/export` | Download the current filtered view as a Markdown table |
+| `GET` | `/api/entries/export/hashcat` | Download entries with a hash + Hashcat Mode as `username:hash` files, one per mode (`.zip` if more than one mode matches) |
 | `GET` | `/api/stats` | Summary counts for the top stats bar |
 | `GET` | `/api/backup` | Download the full SQLite database |
 
@@ -186,6 +188,7 @@ Plain text searches every field. Multiple tokens combine with **AND**. Prefix an
 | `hash:` | Hash value | `hash:8846f7ea*` |
 | `userpass:yes/no` | Has both a username and a password (a locked/confirmed-blank password counts) | `userpass:yes` |
 | `blankpass:yes/no` | Password is locked as confirmed empty | `blankpass:yes` |
+| `hashcatmode:` | Exact Hashcat Mode number, or `none` / `set` for presence | `hashcatmode:1000`, `hashcatmode:none` |
 | `notes:yes/no` | Has a note | `notes:yes` |
 | `tag:value` | Tagged with value | `tag:domain-admin` |
 | `target:value` | Target name (independent of the sidebar selection) | `target:DC01` |
