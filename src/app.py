@@ -576,6 +576,72 @@ def _merge_or_create_entry(conn, target_id, values, tags):
     return ("updated", existing["id"])
 
 
+def _apply_hash_password(conn, hash_value, password, tags):
+    """Match a cracked `hash:password` line (e.g. a hashcat potfile) against
+    existing entries by hash — matched globally, case-insensitively, and
+    regardless of target, since a crack result carries no target of its own
+    and the whole point is to find wherever that hash already lives.
+
+    Unlike _merge_or_create_entry, this never inserts a new entry: a hash the
+    database has never seen isn't something this import can attach anywhere,
+    so it's reported back as not-found instead.
+
+    For every matching entry:
+      - no password set yet   -> fill it in (plus any bulk-import tags)
+      - password set, matches -> leave alone
+      - password set, differs -> note the possible password and tag #check,
+                                  without overwriting the existing password
+
+    Returns (found: bool, outcomes: list[str]), one outcome per matched entry
+    ('updated', 'annotated', or 'unchanged').
+    """
+    rows = conn.execute(
+        "SELECT * FROM entries WHERE hash IS NOT NULL AND LOWER(hash) = LOWER(?)",
+        (hash_value,),
+    ).fetchall()
+    if not rows:
+        return False, []
+
+    is_blank = password == ""
+    outcomes = []
+    for row in rows:
+        if not _row_has_password(row):
+            set_parts, params = ["password=?", "password_is_blank=?"], [password, int(is_blank)]
+            if tags:
+                cur_tags = json.loads(row["tags"] or "[]")
+                merged = list(dict.fromkeys(cur_tags + tags))
+                set_parts.append("tags=?")
+                params.append(json.dumps(merged) if merged else None)
+            set_parts.append("updated_at=datetime('now')")
+            conn.execute(f"UPDATE entries SET {', '.join(set_parts)} WHERE id=?", params + [row["id"]])
+            outcomes.append("updated")
+            continue
+
+        existing_blank = bool(row["password_is_blank"])
+        existing_val = "" if existing_blank else (row["password"] or "")
+        if existing_blank == is_blank and existing_val == password:
+            outcomes.append("unchanged")
+            continue
+
+        pw_display = "(blank)" if is_blank else password
+        note_line = f"[{_timestamp_now()}] Possible password: {pw_display}"
+        prev_notes = row["notes"]
+        new_notes = f"{prev_notes}\n{note_line}" if prev_notes else note_line
+
+        cur_tags = json.loads(row["tags"] or "[]")
+        for t in (["check"] + tags):
+            if t not in cur_tags:
+                cur_tags.append(t)
+
+        conn.execute(
+            "UPDATE entries SET notes=?, tags=?, updated_at=datetime('now') WHERE id=?",
+            (new_notes, json.dumps(cur_tags) if cur_tags else None, row["id"]),
+        )
+        outcomes.append("annotated")
+
+    return True, outcomes
+
+
 @app.route("/api/entries", methods=["POST"])
 def api_create_entry():
     body = request.get_json(silent=True) or {}
@@ -894,6 +960,19 @@ def _parse_bulk_lines(text, fmt, default_hash_type):
             rows.append({"username": user or None, "hash": h or None,
                          "hash_type": default_hash_type or None})
 
+        elif fmt == "hash_pass":
+            if ":" not in line:
+                skipped += 1
+                errors.append(f"line {i}: no ':' separator")
+                continue
+            h, pw = line.split(":", 1)
+            h, pw = h.strip(), pw.strip()
+            if not h:
+                skipped += 1
+                errors.append(f"line {i}: missing hash")
+                continue
+            rows.append({"hash": h, "password": pw})
+
         elif fmt == "secretsdump":
             parts = line.split(":")
             if len(parts) < 4:
@@ -953,7 +1032,9 @@ def _parse_bulk_csv(text):
 # user_pass / user_hash / secretsdump rows contribute a single credential value
 # per username, so they go through the same conflict-aware merge as the "Add
 # Entry" form. CSV rows can carry an arbitrary mix of fields, so they're
-# always inserted as new entries rather than guessed at.
+# always inserted as new entries rather than guessed at. hash_pass is handled
+# separately above (see _apply_hash_password) since it merges by hash instead
+# of username and never inserts.
 _MERGE_ELIGIBLE_FORMATS = {"user_pass", "user_hash", "secretsdump"}
 
 
@@ -979,10 +1060,31 @@ def api_bulk_import():
 
         if fmt == "csv":
             rows, skipped, errors = _parse_bulk_csv(text)
-        elif fmt in ("user_pass", "user_hash", "secretsdump"):
+        elif fmt in ("user_pass", "user_hash", "secretsdump", "hash_pass"):
             rows, skipped, errors = _parse_bulk_lines(text, fmt, default_hash_type)
         else:
             return jsonify(error="Unknown format"), 400
+
+        if fmt == "hash_pass":
+            updated = annotated = unchanged = not_found = 0
+            for entry in rows:
+                found, outcomes = _apply_hash_password(conn, entry["hash"], entry["password"], common_tags)
+                if not found:
+                    not_found += 1
+                    errors.append(f"hash not found: {entry['hash']}")
+                    continue
+                updated += outcomes.count("updated")
+                annotated += outcomes.count("annotated")
+                unchanged += outcomes.count("unchanged")
+            return jsonify({
+                "created": 0,
+                "updated": updated,
+                "annotated": annotated,
+                "unchanged": unchanged,
+                "not_found": not_found,
+                "skipped": skipped,
+                "errors": errors[:50],
+            })
 
         merge_eligible = fmt in _MERGE_ELIGIBLE_FORMATS
 

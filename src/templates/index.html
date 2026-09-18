@@ -315,10 +315,11 @@
           <option value="user_pass">user:pass</option>
           <option value="user_hash">user:hash</option>
           <option value="secretsdump">secretsdump (user:rid:lm:nt:::)</option>
+          <option value="hash_pass">hash:pass (update cracked hashes)</option>
           <option value="csv">CSV (with header row)</option>
         </select>
       </div>
-      <div class="form-field">
+      <div class="form-field" id="import-target-field">
         <label>Assign to target</label>
         <select id="import-target"><option value="">— unassigned —</option></select>
       </div>
@@ -331,6 +332,8 @@
         <input type="text" id="import-tags">
       </div>
     </div>
+
+    <p id="import-format-hint" style="display:none;color:#64748b;font-size:0.78rem;margin-top:10px">Matches lines against existing entries by hash (across all targets). If the entry has no password yet, it's filled in. If it already has a password that matches, nothing changes. If it has a different password, the cracked value is added to Notes and the entry is tagged <code>#check</code> instead of being overwritten.</p>
 
     <div class="drop-zone" id="import-drop-zone" style="margin-top:12px;padding:14px">
       <p style="font-size:0.8rem">Drop a <code>.txt</code> / <code>.csv</code> file here or <span style="color:#60a5fa;text-decoration:underline;cursor:pointer" id="import-browse-link">browse</span> — or paste below</p>

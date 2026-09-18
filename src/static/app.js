@@ -1036,6 +1036,8 @@ qs('#new-target-name').addEventListener('keydown', e => {
 function updateImportFormatUI() {
   const fmt = qs('#import-format').value;
   qs('#import-hashtype-field').style.display = (fmt === 'user_hash') ? '' : 'none';
+  qs('#import-target-field').style.display = (fmt === 'hash_pass') ? 'none' : '';
+  qs('#import-format-hint').style.display = (fmt === 'hash_pass') ? '' : 'none';
 }
 
 qs('#import-btn').addEventListener('click', () => {
@@ -1095,10 +1097,14 @@ qs('#do-import-btn').addEventListener('click', async () => {
         text,
       }),
     });
-    const parts = [`created ${result.created}`];
+    const parts = [];
+    if (result.created)   parts.push(`created ${result.created}`);
     if (result.updated)   parts.push(`updated ${result.updated}`);
     if (result.annotated) parts.push(`flagged ${result.annotated} for review (tagged #check)`);
+    if (result.unchanged) parts.push(`unchanged ${result.unchanged}`);
+    if (result.not_found) parts.push(`hash not found ${result.not_found}`);
     if (result.skipped)   parts.push(`skipped ${result.skipped}`);
+    if (!parts.length) parts.push('nothing to do');
     const msg = parts.join(', ');
     status.textContent = msg + (result.errors.length ? ':\n' + result.errors.join('\n') : '');
     status.style.whiteSpace = 'pre-wrap';
