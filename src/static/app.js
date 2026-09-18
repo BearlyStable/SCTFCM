@@ -1140,13 +1140,22 @@ const EXPORT_FIELDS = [
   ['updated_at',  'Updated',    false],
 ];
 
+function updateExportFormatUI() {
+  const isHydra = qs('#export-format').value === 'hydra';
+  qs('#export-fields').style.display = isHydra ? 'none' : '';
+  qs('#export-hydra-hint').style.display = isHydra ? '' : 'none';
+}
+
 qs('#export-btn').addEventListener('click', () => {
   qs('#export-fields').innerHTML = EXPORT_FIELDS.map(([key, label, def]) => `
     <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.82rem;color:#94a3b8">
       <input type="checkbox" class="export-field-cb" value="${key}" ${def ? 'checked' : ''} style="width:auto;accent-color:#3b82f6"> ${esc(label)}
     </label>`).join('');
+  qs('#export-format').value = 'markdown';
+  updateExportFormatUI();
   qs('#export-modal').style.display = 'flex';
 });
+qs('#export-format').addEventListener('change', updateExportFormatUI);
 
 qs('#cancel-export-btn').addEventListener('click', () => { qs('#export-modal').style.display = 'none'; });
 qs('#export-modal').addEventListener('click', e => {
@@ -1165,15 +1174,21 @@ qs('#do-hashcat-export-btn').addEventListener('click', () => {
 });
 
 qs('#do-export-btn').addEventListener('click', () => {
-  const fields = Array.from(qsa('.export-field-cb:checked', qs('#export-fields'))).map(cb => cb.value);
-  if (!fields.length) {
-    showToast('Select at least one field', 'err');
-    return;
-  }
+  const format = qs('#export-format').value;
   const params = buildQueryParams();
   params.delete('page');
   params.delete('per_page');
-  params.set('fields', fields.join(','));
+  params.set('format', format);
+
+  if (format !== 'hydra') {
+    const fields = Array.from(qsa('.export-field-cb:checked', qs('#export-fields'))).map(cb => cb.value);
+    if (!fields.length) {
+      showToast('Select at least one field', 'err');
+      return;
+    }
+    params.set('fields', fields.join(','));
+  }
+
   window.location.href = '/api/entries/export?' + params.toString();
   qs('#export-modal').style.display = 'none';
 });
