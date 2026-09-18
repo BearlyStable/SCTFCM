@@ -1123,7 +1123,7 @@ def api_bulk_import():
     })
 
 
-# ── Markdown export ──────────────────────────────────────────────────────────
+# ── Entry export ───────────────────────────────────────────────────────────────
 
 EXPORT_FIELDS = {
     "target_name": "Target",
@@ -1156,10 +1156,43 @@ def _md_escape(s):
     return s.replace("|", "\\|").replace("\n", " ").strip()
 
 
+def _text_escape(s):
+    return s.replace("\t", " ").replace("\n", " ").strip()
+
+
 @app.route("/api/entries/export")
 def api_export_entries():
     p = request.args
+    fmt = p.get("format", "markdown").strip().lower()
+    if fmt not in ("markdown", "text", "hydra"):
+        fmt = "markdown"
+
     sql_where, params, order_sql = build_entry_filter(p)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
+    # Hydra's -C wordlist is exactly "login:password" pairs, one per line —
+    # it ignores the field picker entirely and only wants entries that
+    # actually have both, so it's filtered and shaped independently below.
+    if fmt == "hydra":
+        with get_db() as conn:
+            rows = conn.execute(
+                f"""SELECT entries.username, entries.password, entries.password_is_blank
+                    FROM entries LEFT JOIN targets ON targets.id = entries.target_id
+                    WHERE ({sql_where}) AND {_HAS_USERPASS_EXPR}
+                    ORDER BY {order_sql}""",
+                params,
+            ).fetchall()
+
+        if not rows:
+            return jsonify(error="No entries with both a username and a password match the current filters"), 400
+
+        lines = [f"{row['username']}:{'' if row['password_is_blank'] else row['password']}" for row in rows]
+        filename = f"sctfcm-hydra-{timestamp}.txt"
+        return Response(
+            "\n".join(lines) + "\n",
+            mimetype="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
 
     fields = [f for f in p.get("fields", "").split(",") if f in EXPORT_FIELDS]
     if not fields:
@@ -1183,6 +1216,18 @@ def api_export_entries():
         ).fetchall()
 
     headers = [EXPORT_FIELDS[f] for f in fields]
+
+    if fmt == "text":
+        lines = ["\t".join(headers)]
+        for row in rows:
+            lines.append("\t".join(_text_escape(_export_field_value(row, f)) for f in fields))
+        filename = f"sctfcm-export-{timestamp}.txt"
+        return Response(
+            "\n".join(lines) + "\n",
+            mimetype="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
     lines = [
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join("---" for _ in headers) + " |",
@@ -1192,7 +1237,7 @@ def api_export_entries():
             "| " + " | ".join(_md_escape(_export_field_value(row, f)) for f in fields) + " |"
         )
 
-    filename = f"sctfcm-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.md"
+    filename = f"sctfcm-export-{timestamp}.md"
     return Response(
         "\n".join(lines) + "\n",
         mimetype="text/markdown",

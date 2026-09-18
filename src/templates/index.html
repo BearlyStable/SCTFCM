@@ -355,8 +355,20 @@ jdoe:1104:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::">
 <!-- EXPORT MODAL -->
 <div id="export-modal" class="overlay" style="display:none">
   <div class="modal">
-    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:6px">Export as Markdown</h2>
+    <h2 style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:6px">Export Entries</h2>
     <p style="color:#64748b;font-size:0.78rem;margin-bottom:14px">Exports every entry matching the current filters, not just the current page.</p>
+
+    <div class="form-field" style="margin-bottom:12px">
+      <label>Format</label>
+      <select id="export-format">
+        <option value="markdown">Markdown table</option>
+        <option value="text">Simple text file (tab-separated)</option>
+        <option value="hydra">Hydra list (username:password, for -C)</option>
+      </select>
+    </div>
+
+    <p id="export-hydra-hint" style="display:none;color:#64748b;font-size:0.78rem;margin-bottom:14px">Only entries with both a username and a password are included, as one <code>username:password</code> line each — compatible with Hydra's <code>-C</code> option. Field selection doesn't apply to this format.</p>
+
     <div id="export-fields" style="display:flex;flex-direction:column;gap:7px;max-height:280px;overflow-y:auto"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
       <button class="btn btn-ghost" id="cancel-export-btn">Cancel</button>
