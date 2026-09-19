@@ -689,6 +689,8 @@ function renderDetail(entry) {
 
     <div style="margin-top:16px" id="d-reuse-block"></div>
 
+    <div style="margin-top:16px" id="d-password-history-block"></div>
+
     <div style="margin-top:16px">
       <div class="detail-section-label">Tags</div>
       <div class="tag-chips" id="d-tag-chips"></div>
@@ -729,6 +731,20 @@ function renderDetail(entry) {
   qsa('.reuse-link', reuseBlock).forEach(a => {
     a.addEventListener('click', e => { e.preventDefault(); showDetail(parseInt(a.dataset.goto)); });
   });
+
+  // ── Password history ────────────────────────────────────────────────────
+  const historyBlock = qs('#d-password-history-block');
+  if (entry.password_history && entry.password_history.length) {
+    historyBlock.innerHTML = `<div class="detail-section-label">Password History</div>` +
+      `<table style="width:100%;border-collapse:collapse">` +
+      entry.password_history.map(h =>
+        `<tr><td style="padding:2px 10px 2px 0;color:#475569;font-size:0.72rem;white-space:nowrap;vertical-align:top">${fmtDate(h.changed_at)}</td>` +
+        `<td style="padding:2px 0;font-size:0.82rem;color:#94a3b8">${h.password_is_blank ? '<em>(empty)</em>' : esc(h.password)}</td></tr>`
+      ).join('') +
+      `</table>`;
+  } else {
+    historyBlock.innerHTML = '';
+  }
 
   const detailPasswordLocked = wirePasswordLock('#d-password', '#d-password-lock', entry.password_is_blank);
 

@@ -72,6 +72,16 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_entries_username ON entries(username);
         CREATE INDEX IF NOT EXISTS idx_entries_password ON entries(password);
         CREATE INDEX IF NOT EXISTS idx_entries_hash      ON entries(hash);
+
+        CREATE TABLE IF NOT EXISTS password_history (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id          INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+            password          TEXT,
+            password_is_blank INTEGER NOT NULL DEFAULT 0,
+            changed_at        TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_password_history_entry ON password_history(entry_id);
         """)
 
         entry_cols = {row["name"] for row in conn.execute("PRAGMA table_info(entries)")}
@@ -465,6 +475,24 @@ def _row_has_password(row):
     return bool(row["password_is_blank"]) or bool((row["password"] or "").strip())
 
 
+def _record_password_change(conn, eid, old_row, new_values):
+    """Snapshot the password an entry is about to lose into password_history,
+    so it stays recoverable/reviewable after a manual edit overwrites it.
+    Only fires when the entry actually had a password before and the edit
+    changes its effective value (comparing password + password_is_blank
+    together, the same way _row_has_password / _values_has_password do)."""
+    if not _row_has_password(old_row):
+        return
+    old_effective = "" if old_row["password_is_blank"] else (old_row["password"] or None)
+    new_effective = "" if new_values.get("password_is_blank") else (new_values.get("password") or None)
+    if old_effective == new_effective:
+        return
+    conn.execute(
+        "INSERT INTO password_history (entry_id, password, password_is_blank) VALUES (?, ?, ?)",
+        (eid, old_row["password"], int(bool(old_row["password_is_blank"]))),
+    )
+
+
 def _insert_entry(conn, target_id, values, tags):
     cur = conn.execute(
         """INSERT INTO entries (target_id, username, password, password_is_blank, host, domain,
@@ -710,6 +738,16 @@ def api_get_entry(eid):
         else:
             d["reused_hash_with"] = []
 
+        history = conn.execute(
+            """SELECT password, password_is_blank, changed_at FROM password_history
+               WHERE entry_id=? ORDER BY changed_at DESC, id DESC""",
+            (eid,),
+        ).fetchall()
+        d["password_history"] = [
+            {"password": h["password"], "password_is_blank": bool(h["password_is_blank"]), "changed_at": h["changed_at"]}
+            for h in history
+        ]
+
     return jsonify(d)
 
 
@@ -756,6 +794,8 @@ def api_update_entry(eid):
             target_id = int(body["target_id"]) if body["target_id"] else None
             if target_id and not conn.execute("SELECT 1 FROM targets WHERE id=?", (target_id,)).fetchone():
                 return jsonify(error="Unknown target_id"), 400
+
+        _record_password_change(conn, eid, row, values)
 
         conn.execute(
             """UPDATE entries SET target_id=?, username=?, password=?, password_is_blank=?, host=?, domain=?,
